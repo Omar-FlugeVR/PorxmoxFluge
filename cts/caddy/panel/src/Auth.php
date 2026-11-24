@@ -4,6 +4,9 @@ namespace Homelab;
 
 final class Auth
 {
+    private const LOGIN_BLOCK_SECONDS = [60, 60, 60, 300, 300, 300, 600];
+    private const LOGIN_STATE = 'login-attempts.json';
+
     private UsersRepository $users;
 
     public function __construct(private JsonStore $store, private ConfigRepository $config)
@@ -66,31 +69,85 @@ final class Auth
         }
     }
 
-    private function consumeLoginAttempt(string $remoteAddress): void
+    private static function blockedUntil(mixed $entry): int
     {
-        $this->store->locked('login-attempts', function () use ($remoteAddress): void {
-            $attempts = $this->store->read('login-attempts.json');
+        if (!is_array($entry)) {
+            return 0;
+        }
+        // Las instalaciones anteriores guardaban inicio y contador de una ventana de 15 minutos.
+        return (int) ($entry['blockedUntil'] ?? (($entry['count'] ?? 0) >= 5 ? ($entry['start'] ?? 0) + 900 : 0));
+    }
+
+    public function loginRetryAfter(string $remoteAddress): int
+    {
+        $attempts = $this->store->read(self::LOGIN_STATE);
+        return max(0, self::blockedUntil($attempts[hash('sha256', $remoteAddress)] ?? null) - time());
+    }
+
+    private static function requireLoginReady(int $retryAfter): void
+    {
+        if ($retryAfter > 0) {
+            throw new HttpError(429, 'Acceso bloqueado temporalmente por demasiados intentos.', ['retry_after' => $retryAfter]);
+        }
+    }
+
+    private function recordLoginResult(string $remoteAddress, bool $successful): void
+    {
+        $this->store->locked('login-attempts', function () use ($remoteAddress, $successful): void {
+            $attempts = $this->store->read(self::LOGIN_STATE);
             $now = time();
-            $attempts = array_filter($attempts, static fn($entry): bool => is_array($entry) && ($entry['start'] ?? 0) > $now - 900);
             $key = hash('sha256', $remoteAddress);
-            if (isset($attempts[$key]) && ($attempts[$key]['count'] ?? 0) >= 5) {
-                throw new HttpError(429, 'Demasiados intentos. Espera 15 minutos antes de intentarlo de nuevo.');
+            self::requireLoginReady(self::blockedUntil($attempts[$key] ?? null) - $now);
+            if ($successful) {
+                if (isset($attempts[$key])) {
+                    unset($attempts[$key]);
+                    $this->store->write(self::LOGIN_STATE, $attempts);
+                }
+                return;
             }
+
+            $attempts = array_filter($attempts, static function ($entry) use ($now): bool {
+                return is_array($entry) && (isset($entry['updatedAt'])
+                    ? $entry['updatedAt'] > $now - 86400
+                    : ($entry['start'] ?? 0) > $now - 900);
+            });
             if (!isset($attempts[$key]) && count($attempts) >= 5000) {
-                throw new HttpError(429, 'Demasiados intentos de acceso. Inténtalo más tarde.');
+                $unblocked = array_key_first(array_filter($attempts, static fn(array $entry): bool => self::blockedUntil($entry) <= $now));
+                if ($unblocked === null) {
+                    self::requireLoginReady(min(array_map(self::blockedUntil(...), $attempts)) - $now);
+                }
+                unset($attempts[$unblocked]);
             }
-            $attempts[$key] ??= ['start' => $now, 'count' => 0];
-            ++$attempts[$key]['count'];
-            $this->store->write('login-attempts.json', $attempts);
+
+            $entry = $attempts[$key] ?? [];
+            $count = ($entry['count'] ?? 0) + 1;
+            $blocks = (int) ($entry['blocks'] ?? 0);
+            $delay = 0;
+            if ($count >= 5) {
+                $lastStage = count(self::LOGIN_BLOCK_SECONDS) - 1;
+                $delay = self::LOGIN_BLOCK_SECONDS[min($blocks, $lastStage)];
+                $blocks = min($blocks + 1, $lastStage);
+                $count = 0;
+            }
+            $attempts[$key] = ['count' => $count, 'blocks' => $blocks,
+                'blockedUntil' => $delay > 0 ? $now + $delay : 0, 'updatedAt' => $now];
+            $this->store->write(self::LOGIN_STATE, $attempts);
+            self::requireLoginReady($delay);
         });
     }
 
     public function login(array $input, string $remoteAddress): array
     {
-        $this->consumeLoginAttempt($remoteAddress);
-        $username = Validator::text($input['username'] ?? '', 'username', 128, true);
+        self::requireLoginReady($this->loginRetryAfter($remoteAddress));
+        try {
+            $username = Validator::text($input['username'] ?? '', 'username', 128, true);
+        } catch (HttpError $error) {
+            $this->recordLoginResult($remoteAddress, false);
+            throw $error;
+        }
         $password = $input['password'] ?? '';
         if (!is_string($password) || strlen($password) > 1024 || str_contains($password, "\0")) {
+            $this->recordLoginResult($remoteAddress, false);
             throw new HttpError(401, 'Usuario o contraseña incorrectos.');
         }
         $identity = $this->users->byUsername($username);
@@ -98,14 +155,11 @@ final class Auth
         $passwordMatches = $mode === 'adguard'
             ? hash_equals(hash('sha256', $identity['password']), hash('sha256', $password))
             : PasswordPolicy::verify($password, $identity['passwordHash'] ?? '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.');
-        if ($identity === null || !$identity['enabled'] || !$passwordMatches) {
+        $successful = $identity !== null && $identity['enabled'] && $passwordMatches;
+        $this->recordLoginResult($remoteAddress, $successful);
+        if (!$successful) {
             throw new HttpError(401, 'Usuario o contraseña incorrectos.');
         }
-        $this->store->locked('login-attempts', function () use ($remoteAddress): void {
-            $attempts = $this->store->read('login-attempts.json');
-            unset($attempts[hash('sha256', $remoteAddress)]);
-            $this->store->write('login-attempts.json', $attempts);
-        });
         session_regenerate_id(true);
         $_SESSION = ['identity' => $identity['username'], 'userId' => $identity['id'], 'role' => $identity['role'], 'authMode' => $mode, 'credentialFingerprint' => $identity['fingerprint'], 'lastActivity' => time(), 'csrfToken' => bin2hex(random_bytes(32))];
         return $this->session();

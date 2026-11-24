@@ -18,6 +18,31 @@ provision_caddy() {
     ok 'Caddy instalado desde el repositorio apt oficial.'
 }
 
+sync_panel_ndi() {
+    [[ -n "${CADDY_IP:-}" ]] || return 0
+    local state ip='' cli=/opt/fluge-control/bin/configure-ndi.php
+    # NDI puede instalarse por separado mientras el panel todavía no está disponible.
+    (
+        [[ "$(ct_state "$CADDY_CT_ID")" == existing && "$(pct status "$CADDY_CT_ID")" == 'status: running' ]] \
+            && verify_ct_config "$CADDY_CT_ID" \
+            && pct exec "$CADDY_CT_ID" -- test -f "$cli"
+    ) >/dev/null 2>&1 || return 0
+
+    if [[ -n "${NDI_IP:-}" ]]; then
+        state="$(ct_state "$NDI_CT_ID" 2>/dev/null)" || return 0
+        if [[ "$state" == existing ]]; then
+            # Un CT detenido mantiene el destino previamente comprobado.
+            (
+                [[ "$(pct status "$NDI_CT_ID")" == 'status: running' ]] \
+                    && verify_ct_config "$NDI_CT_ID" && ndi_has_services
+            ) >/dev/null 2>&1 || return 0
+            ip="$NDI_IP"
+        fi
+    fi
+    pct exec "$CADDY_CT_ID" -- runuser -u www-data -- php "$cli" /var/lib/fluge-control "$ip" "$NDI_PORT" </dev/null \
+        || warn 'No se pudo actualizar el destino automático NDI del panel.'
+}
+
 apply_caddy() {
     local stage
     need_commands tar
@@ -57,5 +82,6 @@ PY
     pct push "$CADDY_CT_ID" "$TEMP_DIR/panel.tar" "$stage/panel.tar" --perms 0600
     pct exec "$CADDY_CT_ID" -- bash -s < "$REPO_DIR/cts/caddy/provision/panel.sh"
     pct exec "$CADDY_CT_ID" -- bash -s -- "$stage" < "$REPO_DIR/cts/caddy/provision/apply.sh"
+    sync_panel_ndi
     ok "Panel y Caddy aplicados. Acceso inicial en $REPO_DIR/.secrets/panel-admin.json."
 }

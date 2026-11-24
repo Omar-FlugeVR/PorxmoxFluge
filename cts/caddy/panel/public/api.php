@@ -71,10 +71,14 @@ try {
     if (!is_string($action)) {
         throw new HttpError(400, 'Acción no válida.');
     }
+    $remoteAddress = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
     if ($method === 'GET' && $action === 'session') {
         $response = $auth->session() + ['demo' => getenv('FLUGE_DEMO') === '1'];
+        if (!$response['authenticated']) {
+            $response['login_retry_after'] = $auth->loginRetryAfter($remoteAddress);
+        }
     } elseif ($method === 'POST' && $action === 'login') {
-        $response = $auth->login($input, $_SERVER['REMOTE_ADDR'] ?? 'unknown');
+        $response = $auth->login($input, $remoteAddress);
     } else {
         $auth->requireAuthenticated();
         if ($method === 'POST') {
@@ -189,8 +193,8 @@ try {
     echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 } catch (HttpError $error) {
     http_response_code($error->status);
-    if ($error->status === 429) {
-        header('Retry-After: 900');
+    if ($error->status === 429 && isset($error->details['retry_after'])) {
+        header('Retry-After: ' . $error->details['retry_after']);
     }
     echo json_encode(['status' => 'error', 'message' => $error->getMessage()] + $error->details, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 } catch (Throwable $error) {

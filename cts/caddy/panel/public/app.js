@@ -439,8 +439,63 @@ document.addEventListener('click', guard(async event => {
   } else if (d.toggleUser) {const user = users.users.find(u=>u.id === d.toggleUser); await post('update_user',{id:user.id,username:user.username,role:user.role,enabled:!user.enabled,revision:users.revision});users = await request('users'); renderUsers();}
   else if (d.deleteUser) askDelete('user',users.users.find(u=>u.id === d.deleteUser));
 }));
-$('loginForm').addEventListener('submit', async event => {event.preventDefault(); const button = event.submitter; button.disabled = true; $('loginError').textContent = ''; try {session = await post('login', Object.fromEntries(new FormData(event.target))); await load();} catch(error) {$('loginError').textContent = error.message;} finally {button.disabled = false;}});
-$('logout').onclick = guard(async()=>{runner.cancel();ndiModule.setView(false);await post('logout',{});session = await request('session');$('app').hidden = true;$('loginScreen').hidden = false;$('loginForm').elements.password.value = '';});
+const loginForm = $('loginForm');
+const loginButton = loginForm.querySelector('button[type=submit]');
+const loginError = $('loginError');
+const loginRetry = $('loginRetry');
+let loginRetryTimer = null;
+
+function showLoginDelay(seconds) {
+  if (!Number.isInteger(seconds) || seconds <= 0) return;
+  clearInterval(loginRetryTimer);
+  const deadline = Date.now() + seconds * 1000;
+  loginButton.disabled = true;
+  loginError.textContent = 'Acceso bloqueado temporalmente por demasiados intentos.';
+  loginRetry.hidden = false;
+
+  const update = () => {
+    const remaining = Math.ceil((deadline - Date.now()) / 1000);
+    if (remaining <= 0) {
+      clearInterval(loginRetryTimer);
+      loginRetryTimer = null;
+      loginRetry.hidden = true;
+      loginError.textContent = '';
+      loginButton.disabled = false;
+      return;
+    }
+    const minutes = String(Math.floor(remaining / 60)).padStart(2, '0');
+    const seconds = String(remaining % 60).padStart(2, '0');
+    loginRetry.textContent = 'Próximo intento en ' + minutes + ':' + seconds + '.';
+  };
+  loginRetryTimer = setInterval(update, 1000);
+  update();
+}
+
+loginForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (loginButton.disabled) return;
+  loginButton.disabled = true;
+  loginError.textContent = '';
+  try {
+    session = await post('login', Object.fromEntries(new FormData(loginForm)));
+    await load();
+  } catch (error) {
+    loginError.textContent = error.message;
+    if (error.status === 429) showLoginDelay(error.data.retry_after);
+  } finally {
+    loginButton.disabled = loginRetryTimer !== null;
+  }
+});
+$('logout').onclick = guard(async()=>{
+  runner.cancel();
+  ndiModule.setView(false);
+  await post('logout',{});
+  session = await request('session');
+  $('app').hidden = true;
+  $('loginScreen').hidden = false;
+  loginForm.elements.password.value = '';
+  showLoginDelay(session.login_retry_after);
+});
 $('settingsButton').onclick = ()=>switchView('settings');
 $('addButton').onclick = ()=>openEditor(view === 'devices' ? 'device' : 'service');
 $('search').addEventListener('input',renderDirectory);
@@ -462,5 +517,6 @@ document.addEventListener('keydown',event=>{if(event.key==='/'&&!['INPUT','TEXTA
 try {
   session = await request('session');
   if(session.authenticated)await load();
-} catch(error){$('loginError').textContent=error.message;}
-finally {$('loginForm').querySelector('button[type=submit]').disabled=false;}
+  else showLoginDelay(session.login_retry_after);
+} catch(error){loginError.textContent=error.message;}
+finally {loginButton.disabled = loginRetryTimer !== null;}

@@ -1,5 +1,6 @@
 """HTTP regressions of the actual panel, with isolated state and no LAN traffic."""
 import copy
+from hashlib import sha256
 import http.cookiejar
 import importlib.util
 import json
@@ -76,8 +77,10 @@ class PanelTests(unittest.TestCase):
         request = urllib.request.Request(self.base + path, data=payload, headers=headers)
         try:
             with (client or self.client).open(request, timeout=8) as response:
+                self.last_headers = response.headers
                 return response.status, json.load(response)
         except urllib.error.HTTPError as error:
+            self.last_headers = error.headers
             return error.code, json.load(error)
 
     def login(self, username='admin', password='FlugeDemo2026'):
@@ -95,6 +98,57 @@ class PanelTests(unittest.TestCase):
         status, session = self.request('login', {'username':username,'password':password}, client=client, csrf=False)
         self.assertEqual(status, 200, session)
         return client, session
+
+    def test_login_lockouts_escalate_and_reset_after_success(self):
+        client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        wrong = {'username': 'admin', 'password': 'incorrecta'}
+        correct = {'username': 'admin', 'password': 'FlugeDemo2026'}
+        attempts = self.state / 'login-attempts.json'
+        address = sha256(b'127.0.0.1').hexdigest()
+        for delay in (60, 60, 60, 300, 300, 300, 600, 600):
+            with self.subTest(delay=delay):
+                for _ in range(4):
+                    self.assertEqual(self.request('login', wrong, client=client)[0], 401)
+                status, locked = self.request('login', wrong, client=client)
+                self.assertEqual((status, locked['retry_after']), (429, delay))
+                self.assertEqual(self.last_headers['Retry-After'], str(delay))
+                saved = attempts.read_bytes()
+                status, session = self.request('session', client=client)
+                self.assertEqual(status, 200)
+                self.assertGreater(session['login_retry_after'], 0)
+                self.assertLessEqual(session['login_retry_after'], delay)
+                status, locked = self.request('login', correct, client=client)
+                self.assertEqual(status, 429)
+                self.assertEqual(self.last_headers['Retry-After'], str(locked['retry_after']))
+                self.assertEqual(attempts.read_bytes(), saved)
+                state = json.loads(saved)
+                state[address]['blockedUntil'] = int(time.time()) - 1
+                attempts.write_text(json.dumps(state), encoding='utf-8')
+                self.assertEqual(self.request('session', client=client)[1]['login_retry_after'], 0)
+        for _ in range(4):
+            self.assertEqual(self.request('login', wrong, client=client)[0], 401)
+        status, session = self.request('login', correct, client=client)
+        self.assertEqual(status, 200)
+        self.assertEqual(self.request('logout', {}, client=client, csrf=session['csrfToken'])[0], 200)
+        for _ in range(4):
+            self.assertEqual(self.request('login', wrong, client=client)[0], 401)
+        status, locked = self.request('login', wrong, client=client)
+        self.assertEqual((status, locked['retry_after']), (429, 60))
+
+    def test_login_throttle_reads_the_previous_state_format(self):
+        attempts = self.state / 'login-attempts.json'
+        address = sha256(b'127.0.0.1').hexdigest()
+        client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        state = {address: {'start': int(time.time()) - 600, 'count': 5}}
+        attempts.write_text(json.dumps(state), encoding='utf-8')
+        status, session = self.request('session', client=client)
+        self.assertEqual(status, 200)
+        self.assertGreater(session['login_retry_after'], 0)
+        self.assertLessEqual(session['login_retry_after'], 300)
+        state[address] = {'start': int(time.time()), 'count': 4}
+        attempts.write_text(json.dumps(state), encoding='utf-8')
+        status, locked = self.request('login', {'username': 'admin', 'password': 'incorrecta'}, client=client)
+        self.assertEqual((status, locked['retry_after']), (429, 60))
 
     def test_save_automatically_publishes_add_edit_delete_and_preserves_external_dns(self):
         (self.state / 'demo-dns.json').write_text(json.dumps([{'domain':'manual.lan','answer':'192.168.1.99'}]))
@@ -320,6 +374,39 @@ class PanelTests(unittest.TestCase):
     def save_ndi(self, settings):
         revision = self.request('get_config')[1]['configRevision']
         return self.request('save_config',{'configRevision':revision,'ndi':settings})
+
+    def apply_ndi_default(self, ip='', port=5959):
+        subprocess.run([PHP, str(ROOT / 'cts/caddy/panel/bin/configure-ndi.php'), str(self.state), ip, str(port)],
+                       capture_output=True, text=True, check=True)
+
+    def test_discovery_deployment_sets_and_removes_the_automatic_destination(self):
+        config = self.request('get_config')[1]
+        self.apply_ndi_default()
+        self.assertEqual(self.request('/api/ndi/status')[1], {'enabled': False})
+        self.apply_ndi_default('192.168.1.16', 5974)
+        applied = self.request('get_config')[1]
+        self.assertEqual(applied['ndi'], self.ndi_settings(ip='192.168.1.16', port=5974, polling_rate=5, groups=''))
+        self.assertEqual(applied['configRevision'], config['configRevision'])
+        self.assertEqual(self.request('runtime')[1]['ndi'], applied['ndi'])
+        stored = (self.state / 'config.json').read_bytes()
+        self.apply_ndi_default('192.168.1.16', 5974)
+        self.assertEqual((self.state / 'config.json').read_bytes(), stored)
+        updated = self.request('save_config', {'configRevision': applied['configRevision'], 'installationName': 'Plato principal'})
+        self.assertEqual(updated[0], 200)
+        self.apply_ndi_default()
+        self.assertEqual(self.request('/api/ndi/status')[1], {'enabled': False})
+        self.assertEqual(self.request('get_config')[1]['installationName'], 'Plato principal')
+        self.apply_ndi_default('192.168.1.16')
+        self.assertTrue(self.request('runtime')[1]['ndi']['enabled'])
+
+    def test_discovery_deployment_preserves_an_explicit_ndi_setting(self):
+        self.apply_ndi_default('192.168.1.16')
+        self.assertEqual(self.save_ndi(self.ndi_settings(enabled=False, ip='', polling_rate=5, groups=''))[0], 200)
+        config = self.request('get_config')[1]
+        self.apply_ndi_default('192.168.1.16', 5974)
+        self.assertEqual(self.request('get_config')[1], config)
+        self.apply_ndi_default()
+        self.assertEqual(self.request('get_config')[1], config)
 
     def test_ndi_disabled_returns_immediately_without_creating_probe_state(self):
         self.assertFalse(self.request('get_config')[1]['ndi']['enabled'])

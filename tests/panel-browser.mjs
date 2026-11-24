@@ -30,6 +30,33 @@ try {
   await call('Page.navigate',{url:base});
   await waitFor(`document.querySelector('#loginForm button[type=submit]')&&!document.querySelector('#loginForm button[type=submit]').disabled`);
   assert(await evaluate(`document.querySelector('#loginForm [name=username]').value===''&&document.querySelector('#loginForm [name=password]').value===''`),'Login fields must start empty');
+  if (stateDirectory) {
+    const button = '#loginForm button[type=submit]';
+    const blocked = `document.querySelector('#loginRetry')?.hidden===false&&document.querySelector('${button}').disabled`;
+    await fill('#loginForm [name=username]', 'admin');
+    await fill('#loginForm [name=password]', 'incorrecta');
+    for (let index = 0; index < 4; index++) {
+      await click(button);
+      await waitFor(`!document.querySelector('${button}').disabled&&document.getElementById('loginError').textContent.includes('incorrectos')`);
+    }
+    await click(button);
+    await waitFor(blocked);
+    const firstTick = await evaluate("document.getElementById('loginRetry').textContent");
+    assert(/Próximo intento en 0[01]:[0-5]\d\./.test(firstTick), 'The login timer must show minutes and seconds');
+    await waitFor(`document.getElementById('loginRetry').textContent!==${JSON.stringify(firstTick)}`);
+    await call('Page.reload');
+    await waitFor(blocked);
+    const attemptsPath = path.join(stateDirectory, 'login-attempts.json');
+    const attempts = JSON.parse(fs.readFileSync(attemptsPath, 'utf8'));
+    const entry = Object.values(attempts).find(value => value.blockedUntil > Date.now() / 1000);
+    assert(entry, 'The browser test must have an active server lockout');
+    entry.blockedUntil = Math.floor(Date.now() / 1000) + 4;
+    fs.writeFileSync(attemptsPath, JSON.stringify(attempts));
+    await call('Page.reload');
+    await waitFor(blocked);
+    await waitFor(`document.getElementById('loginRetry').hidden&&!document.querySelector('${button}').disabled`);
+    console.log('Login lockout countdown, reload and re-enabled submit passed.');
+  }
   await fill('#loginForm [name=username]','admin');await fill('#loginForm [name=password]','FlugeDemo2026');
   await click('#loginForm button[type=submit]');
   await waitFor(`!document.getElementById('app').hidden && document.querySelectorAll('.service-card').length === 4`);

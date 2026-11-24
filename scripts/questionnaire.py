@@ -95,7 +95,7 @@ def ask_address(label, nic, default):
     return f"{address}/{prefix}"
 
 
-def ask_nics(role, previous, default_bridge, route, bridges):
+def ask_nics(role, previous, default_bridge, route, bridges, gateways):
     count = int(ask("Número de NIC", str(len(previous) or 1),
                     valid=lambda value: bool(re.fullmatch(r"(?:[1-9]|[12][0-9]|3[0-2])", value))))
     nics = []
@@ -109,15 +109,20 @@ def ask_nics(role, previous, default_bridge, route, bridges):
         nic["vlan"] = ask(f"{label} · VLAN (- para ninguna)", old.get("vlan", ""), allow_empty=True,
                          valid=lambda value: nic_settings({**nic, "vlan": value}, label))
         if not any(previous_nic["gateway"] for previous_nic in nics):
+            network = ipaddress.IPv4Network(nic["ip"], strict=False)
+            network_key = (bridge, nic["vlan"], network)
             suggested = old.get("gateway", "")
             if not old and index == 0 and bridge == route.get("dev") and not nic["vlan"]:
                 suggested = route.get("gateway", "")
+            suggested = gateways.get(network_key, suggested)
             try:
                 nic_settings({**nic, "gateway": suggested}, label)
             except ConfigError:
                 suggested = ""
             nic["gateway"] = ask(f"{label} · puerta de enlace IPv4 (- para ninguna)", suggested, allow_empty=True,
                                 valid=lambda value: nic_settings({**nic, "gateway": value}, label))
+            if nic["gateway"]:
+                gateways[network_key] = nic["gateway"]
         nics.append(nic)
     return nics
 
@@ -167,6 +172,7 @@ def questionnaire(destination, candidates, existing):
     if "caddy" in chosen:
         cfg["LANDING_SUBDOMAIN"] = ask(f"Nombre DNS del panel en {cfg['BASE_DOMAIN']}", cfg["LANDING_SUBDOMAIN"], valid=LABEL.fullmatch)
 
+    gateways = {}
     for role in chosen:
         key = role.upper()
         print(f"\n{NAMES[role]}")
@@ -174,7 +180,7 @@ def questionnaire(destination, candidates, existing):
             cfg[f"{key}_CT_ID"] = ask("ID de CT", cfg[f"{key}_CT_ID"], valid=valid_ct_id)
         cfg[f"{key}_HOSTNAME"] = ask("Hostname", cfg[f"{key}_HOSTNAME"], valid=LABEL.fullmatch)
         previous = role_networks(defaults, role) if defaults[f"{key}_IP"] else []
-        nics = ask_nics(role, previous, default_bridge, route, bridges)
+        nics = ask_nics(role, previous, default_bridge, route, bridges, gateways)
         cfg[f"{key}_IP"] = nics[0]["ip"].split("/")[0]
         cfg[f"{key}_NICS"] = json.dumps(nics, separators=(",", ":"))
 

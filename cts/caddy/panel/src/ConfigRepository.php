@@ -24,13 +24,36 @@ final class ConfigRepository
         return array_intersect_key($this->get(), array_flip(['scanNetworks', 'scanPresets', 'dhcpRange', 'scanAllowedCidrs', 'configRevision'])) + ['scanLimit' => ScannerSettings::LIMIT];
     }
 
+    public function applyNdiDefault(array $input): void
+    {
+        $ndi = NdiSettings::validate($input);
+        $this->store->locked('config', function () use ($ndi): void {
+            if (!is_file($this->store->path('config.json'))) {
+                throw new HttpError(503, 'Inicializa el panel antes de configurar NDI.');
+            }
+            $config = $this->store->read('config.json');
+            $current = NdiSettings::validate($config['ndi'] ?? NdiSettings::defaults());
+            $automatic = $config['ndiAutomatic'] ?? ($current == NdiSettings::defaults());
+            if (!$automatic || $current == $ndi) {
+                return;
+            }
+            // El destino automático es independiente de la revisión de publicación DNS.
+            $config['ndi'] = $ndi;
+            $config['ndiAutomatic'] = true;
+            $this->store->write('config.json', $config);
+        });
+    }
+
     public function save(array $input): array
     {
         return $this->store->locked('accounts', fn(): array => $this->store->locked('config', function () use ($input): array {
             $config = $this->get();
             $previousUsername = $config['adguardUser'];
             $previousPassword = $config['adguardPass'];
-            if (array_key_exists('ndi', $input)) $config['ndi'] = NdiSettings::validate($input['ndi']);
+            if (array_key_exists('ndi', $input)) {
+                $config['ndi'] = NdiSettings::validate($input['ndi']);
+                $config['ndiAutomatic'] = false;
+            }
             if (Validator::revision($input['configRevision'] ?? null, 'configRevision') !== $config['configRevision']) {
                 throw new HttpError(409, 'Los ajustes han cambiado en otra sesión.', ['configRevision' => $config['configRevision']]);
             }

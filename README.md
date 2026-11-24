@@ -15,6 +15,14 @@ Los cuatro son **unprivileged**, sin nesting ni privilegios añadidos. En Proxmo
 
 Necesitas un Proxmox VE operativo sobre **amd64**, acceso `root`, salida a Internet, al menos un puente Linux y una IP libre fuera del rango DHCP por NIC. Los CTs siempre usan Debian 12, aunque el host use otra versión de Debian. El almacenamiento de plantillas debe admitir `vztmpl` y el de discos, `rootdir`.
 
+Si quieres que la tecla ↑ de la consola de instalación empiece con una lista vacía, abre primero una sesión Bash temporal en el host.
+
+```bash
+HISTFILE=/dev/null bash --noprofile --norc +o history -i
+```
+
+Ejecuta los pasos de instalación dentro de esa sesión y vuelve a la consola habitual con `exit`. La sesión temporal conserva el historial guardado de tu cuenta. Los comandos que el instalador ejecuta dentro de los CTs ya se ejecutan en sesiones no interactivas.
+
 En la terminal del **host**, instala las herramientas si faltan:
 
 ```bash
@@ -55,6 +63,8 @@ Después responde sí o no para AdGuard, Caddy, Companion y NDI. El asistente de
 
 Para cada NIC indica el puente, la IPv4, la VLAN opcional y la puerta de enlace. Puedes escribir la IPv4 con su prefijo, como `192.168.1.20/24`, o escribir solo la dirección y responder después por el prefijo. Usa el de la red conectada a ese puente o VLAN. Si un valor de red es inválido, el asistente vuelve a pedir ese campo. Usa `-` para vaciar un valor opcional. La primera NIC lleva la IP del servicio y puedes configurar una puerta de enlace por CT. Prepara en Proxmox los puentes que vayas a usar y las VLAN permitidas.
 
+Para una NIC nueva en el puente de la ruta por defecto del host y sin VLAN, el cuestionario puede sugerir la puerta de enlace de Proxmox si encaja con la subred. Cuando eliges una puerta de enlace, se ofrece la misma para los siguientes CTs que compartan puente, VLAN y subred. Pulsa Intro para usarla o escribe otra dirección.
+
 El resumen muestra la red y las operaciones previstas. Al confirmar se guarda `config.env` con permisos `600` y se instalan los CTs elegidos. Si ya existía un archivo distinto, su copia queda en `config.env.bak`. Puedes conservar la configuración de un CT y excluirlo de la selección de esta ejecución.
 
 ## 2. Validar e instalar
@@ -72,6 +82,8 @@ El despliegue usa una plantilla Debian 12 amd64 del storage o la descarga con `p
 - Caddy se instala desde su repositorio `apt` con PHP 8.2-FPM, cURL y el panel. Puedes abrirlo por su IP si aún no has desplegado el DNS.
 - Companion usa el instalador headless oficial de Bitfocus con su runtime incluido y la unidad `companion.service`.
 - NDI instala `ndi-discovery-server` como `ndi-discovery.service` a partir del SDK oficial. El cuestionario muestra la licencia al elegir un CT de NDI nuevo, antes de crear los CTs.
+
+Cuando se comprueba que el CT de NDI Discovery está instalado, el panel activa por defecto el monitor con la IP y el puerto de ese CT. También se aplica al instalar NDI después del panel. Puedes decidir el destino y el estado del monitor desde Ajustes, y el despliegue conserva esa elección.
 
 Las aplicaciones se comprueban antes de publicar el inventario en Caddy y AdGuard. Companion y NDI tienen verificaciones de respuesta HTTP y TCP, respectivamente. La descarga NDI puede necesitar que obtengas el paquete desde su web si el enlace directo no está disponible; en ese caso usa `NDI_INSTALLER_FILE` siguiendo la [guía del CT NDI](cts/ndi/README.md).
 

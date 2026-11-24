@@ -185,7 +185,7 @@ class InventoryTests(unittest.TestCase):
             "s", "n", "s", "n",  # Selección.
             "", "", "", "", "",  # Almacenamientos, DNS y dominio.
             "", "", "1", "", "10.20.0.11/24", "20", "10.20.0.1",
-            "", "", "2", "", "10.20.0.15/24", "20", "10.20.0.1", "vmbr1", "172.20.0.15/24", "30",
+            "", "", "2", "", "10.20.0.15/24", "20", "", "vmbr1", "172.20.0.15/24", "30",
         ])
         with patch.object(wizard, "host_network", return_value=({
                 "192.168.1.99": ("vmbr0", 24), "192.168.1.10": ("vmbr0", 24)},
@@ -200,6 +200,7 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(cfg["CADDY_IP"], "")
         self.assertEqual(cfg["NDI_IP"], "")
         nics = role_networks(cfg, "companion")
+        self.assertEqual(nics[0]["gateway"], "10.20.0.1")
         self.assertEqual(nics[1], {"bridge": "vmbr1", "ip": "172.20.0.15/24", "gateway": "", "vlan": "30"})
         self.assertEqual(cfg["COMPANION_IP"], "10.20.0.15")
         services = load_services(ROOT / "services.json", cfg)
@@ -216,12 +217,28 @@ class InventoryTests(unittest.TestCase):
         wizard = load_module("questionnaire", ROOT / "scripts/questionnaire.py")
         answers = ["", "", "172.19.200.1", "31", "17", "4095", "-", "172.19.1.1", "172.19.160.1"]
         with patch("builtins.input", side_effect=answers) as prompt, patch("builtins.print"):
-            nics = wizard.ask_nics("adguard", [], "vmbr0", {"dev": "vmbr0", "gateway": "172.19.160.1"}, ["vmbr0"])
+            nics = wizard.ask_nics("adguard", [], "vmbr0", {"dev": "vmbr0", "gateway": "172.19.160.1"}, ["vmbr0"], {})
         self.assertEqual(nics, [{"bridge": "vmbr0", "ip": "172.19.200.1/17", "vlan": "", "gateway": "172.19.160.1"}])
         labels = [call.args[0] for call in prompt.call_args_list]
         self.assertEqual([sum(field in label for label in labels) for field in
                           ("puente", "IPv4 o IPv4/CIDR", "prefijo CIDR", "VLAN", "puerta de enlace")],
                          [1, 1, 2, 2, 2])
+        self.assertIn("[172.19.160.1]", labels[-1])
+
+    def test_questionnaire_scopes_gateway_suggestions_to_the_network(self):
+        wizard = load_module("questionnaire", ROOT / "scripts/questionnaire.py")
+        gateways = {}
+        with patch("builtins.input", side_effect=["", "", "10.20.0.11/24", "20", "10.20.0.254"]):
+            wizard.ask_nics("adguard", [], "vmbr0", {}, ["vmbr0", "vmbr1"], gateways)
+        for bridge, address, vlan in (("vmbr1", "10.20.0.12/24", "20"),
+                                      ("vmbr0", "10.20.0.12/24", "21"),
+                                      ("vmbr0", "10.20.1.12/24", "20"),
+                                      ("vmbr0", "10.20.0.254/24", "20")):
+            with self.subTest(bridge=bridge, address=address, vlan=vlan), \
+                    patch("builtins.input", side_effect=["", bridge, address, vlan, ""]) as prompt:
+                nics = wizard.ask_nics("caddy", [], "vmbr0", {}, ["vmbr0", "vmbr1"], gateways)
+                self.assertEqual(nics[0]["gateway"], "")
+                self.assertNotIn("[10.20.0.254]", prompt.call_args.args[0])
 
     def test_questionnaire_checks_new_ndi_license_before_network_and_saves_its_hash(self):
         wizard = load_module("questionnaire", ROOT / "scripts/questionnaire.py")

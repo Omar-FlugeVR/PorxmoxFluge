@@ -18,9 +18,12 @@ ndi_preflight() {
     fi
 }
 
+ndi_has_services() {
+    pct exec "$NDI_CT_ID" -- bash -c 'test -x /opt/ndi-discovery/bin/ndi-discovery-server && command -v python3 >/dev/null && id ndi >/dev/null && systemctl cat ndi-discovery.service >/dev/null'
+}
+
 ndi_assert_services() {
-    pct exec "$NDI_CT_ID" -- bash -c 'test -x /opt/ndi-discovery/bin/ndi-discovery-server && command -v python3 >/dev/null && id ndi >/dev/null && systemctl cat ndi-discovery.service >/dev/null' \
-        || die "CT $NDI_CT_ID necesita NDI Discovery Service en /opt/ndi-discovery y la unidad ndi-discovery.service."
+    ndi_has_services || die "CT $NDI_CT_ID necesita NDI Discovery Service en /opt/ndi-discovery y la unidad ndi-discovery.service."
 }
 
 provision_ndi() {
@@ -35,4 +38,5 @@ provision_ndi() {
 
 apply_ndi() {
     apply_native_service ndi
+    sync_panel_ndi
 }

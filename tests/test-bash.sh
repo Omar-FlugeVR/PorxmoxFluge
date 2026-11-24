@@ -54,6 +54,47 @@ grep -q 'create 113 .*--unprivileged 1 --cores 1 --memory 512.*--rootfs local-lv
 )
 grep -q -- '--net0 name=eth0,bridge=vmbr0,ip=192.168.1.15/24,ip6=manual,gw=192.168.1.1,tag=20 --net1 name=eth1,bridge=vmbr1,ip=10.9.0.15/24,ip6=manual,tag=30' "$calls_file"
 
+# Solo ofrecer NDI al panel si hay una instalación comprobada en el CT esperado.
+(
+    ct_state() {
+        if [[ "$1" == "$NDI_CT_ID" && "$scenario" == absent ]]; then printf 'new\n'
+        else printf 'existing\n'; fi
+    }
+    verify_ct_config() {
+        [[ "$1" != "$NDI_CT_ID" || "$scenario" != wrong_network ]] || die 'NIC NDI distinta.'
+    }
+    ndi_has_services() { [[ "$scenario" != incomplete ]]; }
+    apply_native_service() { printf 'native %s\n' "$1" >> "$calls_file"; }
+    pct() {
+        case "$1" in
+            status)
+                if [[ "$2" == "$NDI_CT_ID" && "$scenario" == stopped ]]; then printf 'status: stopped\n'
+                else printf 'status: running\n'; fi ;;
+            exec)
+                [[ "$2" == "$CADDY_CT_ID" && "$3" == -- ]] || return 99
+                case "$4" in
+                    test) [[ "$scenario" != panel_pending ]] ;;
+                    runuser) printf 'panel:%s:%s\n' "${11}" "${12}" >> "$calls_file" ;;
+                    *) return 99 ;;
+                esac ;;
+            *) return 99 ;;
+        esac
+    }
+    scenario=installed
+    : > "$calls_file"
+    NDI_PORT=5974 apply_ndi
+    [[ "$(cat "$calls_file")" == $'native ndi\n'"panel:$NDI_IP:5974" ]]
+    scenario=absent
+    : > "$calls_file"
+    sync_panel_ndi
+    [[ "$(cat "$calls_file")" == "panel::$NDI_PORT" ]]
+    for scenario in stopped wrong_network incomplete panel_pending; do
+        : > "$calls_file"
+        sync_panel_ndi
+        [[ ! -s "$calls_file" ]]
+    done
+)
+
 # Reutilizar una plantilla local no debe actualizar el catálogo ni descargarla.
 check_storage() { :; }
 pveam() {

@@ -3,11 +3,16 @@ USUARIO:
     ☑ REVISAR LANDING PAGE (aspecto aprobado)
     ☐ ESTABLECERE VLANS Y NICS
     ☑ interaccion con NDI service ¿puedo ver ips, disponibles bla bla bla? (Monitor implementado y probado en simulación; validación con servidor real pendiente.)
+    ☐ vlan? que hacer si necesito acceso remoto
+    ☐ updates?
+    ☐ exportar config por si acaso?
+    ☐ traspasar el repo a fluge?
+
 
 Codex:
     Peticiones completadas — recopilación del 24/11/2026
     ☑ = implementado; disponible para tu revisión.
-    La sección «Primera prueba en Proxmox» recoge las comprobaciones ya hechas en la VM. Queda validar el ciclo completo desde una instalación limpia.
+    Las pruebas en la VM se recogen en «Primera prueba en Proxmox» y «Ciclo desde una VM Proxmox limpia».
 
     Infraestructura y repositorio
     ☑ Instalador automatizado en Bash para Proxmox, con validaciones, plantilla Debian 12 y post-install comunitario opcional.
@@ -118,6 +123,7 @@ Codex:
     ☑ Ampliar las pruebas Bash del coordinador con instalación nueva, actualización, omisión de existentes, despliegue independiente, errores de inventario, IDs de otros nodos/VMs y fallos de identidad.
     ☑ Ejecutar 58 pruebas Python (54 superadas y 4 POSIX omitidas en Windows), pruebas Bash, sintaxis y ShellCheck. Validación real sobre Proxmox y definición de NIC/VLAN pendientes; sin arrancar la muestra local permanente.
     ☑ Comparar el instalador original con el flujo de cuestionario propuesto.
+    ☑ Revisar el flujo de actualizaciones para producción. Confirmar que sync.sh despliega los cambios del proyecto en CTs existentes y que las versiones de Companion se gestionan con el actualizador de Bitfocus o desde la conexión si el cambio es de un módulo. Revisión de código y documentación, sin ejecutar actualizaciones.
 
     Cuestionario de instalación — 24/11/2026
     ☑ Ofrecer primero el post-install comunitario y después preguntar por separado si instalar AdGuard, Caddy, Companion y NDI.
@@ -128,6 +134,7 @@ Codex:
     ☑ Comprobar cuestionario, cancelación, NIC con VLAN, selección parcial e instalación y sincronización con dobles de Proxmox. Pasaron Bash, ShellCheck y 56 pruebas Python. Quedan la prueba en Proxmox real y los valores de red de la instalación.
     ☑ Limpiar la terminal y mostrar la cabecera ASCII de FLUGE al iniciar el instalador y al volver del post-install. Detectar y mostrar la IP del host para el enlace a Proxmox y documentar los valores de almacenamiento y DNS del cuestionario.
     ☑ Aceptar una IPv4 sin prefijo y pedir el CIDR por separado. Validar IP, prefijo, VLAN y puerta de enlace al introducirlos. El caso de la captura pasó con una red simulada, junto con las 13 pruebas de inventario, las pruebas Bash del instalador y ShellCheck. Pendiente probarlo en el host.
+    ☑ Recordar la puerta de enlace elegida durante el cuestionario y sugerirla para los siguientes CTs con el mismo puente, VLAN y subred. Verificar la sugerencia de la ruta de Proxmox y la reutilización con pruebas locales de redes coincidentes y distintas.
 
     Preparación para GitHub — 24/11/2026
     ☑ Revisar los 99 archivos del primer commit, incluidos los scripts nuevos y sus permisos. La copia revisada contiene los logos de Fluge y excluye configuración privada, credenciales de instalación, artefactos locales y binarios NDI.
@@ -156,3 +163,19 @@ Codex:
     ☑ Mostrar la licencia al elegir un CT de NDI nuevo, antes de configurar la red. Guardar en config.env la huella del texto aceptado, reutilizarla mientras coincida y enviar la respuesta al instalador en el CT con la misma copia revisada.
     ☑ Comprobar aceptación, rechazo, ejecución desatendida, cambio de términos y verificación del paquete con pruebas locales. Pasaron las pruebas Bash, ShellCheck y la validación del texto del SDK oficial. Queda probar el aprovisionamiento en Proxmox desde la instantánea limpia.
     ☑ Corregir en la suite del panel la comparación de la última observación NDI para medirla desde la consulta más reciente, incluso si el reloj cambia de segundo entre consultas.
+
+    Ciclo desde una VM Proxmox limpia — 24/11/2026
+    ☑ Clonar desde GitHub la revisión fab7d9a en la instantánea limpia. Instalar los requisitos de arranque usando las fuentes Debian y ejecutar el post-install real en Proxmox VE 9.2.2. Comprobar la actualización a 9.2.32, la desactivación de Enterprise y del aviso de suscripción, pve-no-subscription habilitado, HA conservado y el equipo sin reiniciar.
+    ☑ Completar el cuestionario real de los cuatro CTs. Verificar que la licencia oficial aparece al seleccionar NDI y queda guardada su huella en config.env con permisos 600. Probar la entrada de IPv4 y prefijo por separado en una NIC y guardar el plan con cuatro IPs estáticas.
+    ☑ Instalar desde cero y dejar activos AdGuard, Caddy con PHP-FPM, Companion y NDI Discovery en los CTs 110 a 113. Comprobar que las correcciones de Caddy y Companion funcionan en el primer despliegue y que NDI instala tras aceptar la licencia en el cuestionario, sin otro aviso interactivo. Verificar también la lectura de la aceptación guardada desde un proceso sin terminal.
+    ☑ Comprobar desde Windows el panel, Companion en el puerto 8000 y NDI en TCP 5959. Validar DNS de AdGuard, incluidas las cinco entradas .lan, y las redirecciones 302 con los puertos previstos. Verificar el inicio de sesión y la prueba TCP NDI desde el panel con el aviso esperado por falta de libndi en el CT de Caddy. La consulta nativa con el SDK en el CT de NDI completó con cero fuentes registradas.
+    ☑ Ejecutar sync.sh --check y repetir install.sh --yes sobre los cuatro CTs. La segunda ejecución los reconoció y los hashes de sus configuraciones y de config.env coincidieron antes y después.
+    ☑ Revisar la instalación ejecutada por el usuario. Verificar que los cuatro CTs y sus servicios están activos, que las NIC y puertas de enlace coinciden con config.env y que la licencia NDI quedó registrada. Probar desde Windows el nombre elegido para el panel, el DNS público y local, las redirecciones 302, Companion y la conexión TCP al Discovery Server.
+
+    Acceso al panel e historial de instalación — 25/11/2026
+    ☑ Confirmar que la contraseña inicial de admin seguía vigente, liberar el bloqueo por intentos solo para el equipo del usuario y verificar el inicio de sesión real desde Windows. La resolución de fluge.lan funciona al consultar AdGuard; el DNS predeterminado de Windows requiere esa configuración para usar el nombre.
+    ☑ Verificar que los cuatro CTs carecen de historial Bash persistente de root y probar en Proxmox una sesión temporal con el historial desactivado. Documentar el comando de instalación que conserva el historial previo de la cuenta.
+    ☑ Escalar los bloqueos de acceso tras cinco fallos por IP: tres de un minuto, tres de cinco minutos y los siguientes de diez minutos. Mostrar la cuenta atrás en el navegador, recuperarla al recargar y volver a habilitar Entrar al vencer. Confirmar en pruebas HTTP la secuencia y el reinicio tras un acceso correcto, y en Chromium el aviso, la recarga y la expiración. Validado localmente.
+
+    Activación inicial del monitor NDI — 25/11/2026
+    ☑ Activar el monitor con la IP y el puerto del CT NDI Discovery cuando el despliegue confirma su instalación, incluidos los CTs instalados por separado. Conservar los ajustes manuales y dejar desactivado el valor automático cuando no hay CT NDI. Verificado con pruebas HTTP y dobles de Proxmox; pendiente publicar en la VM.
