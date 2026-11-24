@@ -20,12 +20,12 @@ En la terminal del **host**, instala las herramientas si faltan:
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates python3
-git clone <URL_DE_TU_REPOSITORIO> studio-infra
+git clone https://github.com/Omar-FlugeVR/PorxmoxFluge.git studio-infra
 cd studio-infra
 ./install.sh
 ```
 
-Sustituye `<URL_DE_TU_REPOSITORIO>` por la URL donde publiques estos archivos. Si el host recién instalado tiene repositorios Enterprise sin una suscripción, desactívalos desde la interfaz de Proxmox y añade el repositorio `no-subscription` de la versión del host para poder instalar dependencias. Si ya tienes `git`, `curl` y `python3`, el paso opcional del instalador puede encargarse de esos repositorios.
+Si el host recién instalado tiene repositorios Enterprise sin una suscripción, desactívalos desde la interfaz de Proxmox y añade el repositorio `no-subscription` de la versión del host para poder instalar dependencias. Si ya tienes `git`, `curl` y `python3`, el paso opcional del instalador puede encargarse de esos repositorios.
 
 El cuestionario ofrece primero el [post-install de community-scripts/ProxmoxVE](https://community-scripts.org/scripts/post-pve-install). Si lo ejecutas, completa sus preguntas y pospón el reinicio hasta terminar el despliegue.
 
