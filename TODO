@@ -141,3 +141,8 @@ Codex:
     ☑ Conservar HA y Corosync, responder no al reinicio, verificar la revisión del script y detener el perfil al fallar APT.
     ☑ Documentar el perfil y comprobar con dobles las variantes de los menús de Proxmox 8/9, el rechazo de una revisión distinta, el bloqueo del reinicio y el orden respecto al cuestionario. ShellCheck 0.9/0.11 y pruebas Bash correctas. Queda probar el perfil en el host.
     ☑ Ajustar el perfil a la captura: omitir añadir o reemplazar repositorios de paquetes Ceph y desactivar sus entradas Enterprise existentes antes de actualizar, con copia previa de los archivos .list modificados. Se conservan las demás fuentes Ceph. Comprobados selección, copias, repetición y fallos con pruebas Bash y ShellCheck 0.9/0.11; pendiente el host real.
+
+    Primera prueba en Proxmox — 24/11/2026
+    ☑ Revisar el registro facilitado por el usuario. El asistente detectó la IP del host, guardó config.env y descargó la plantilla Debian 12 con su checksum verificado. Proxmox devolvió «Permission denied» al extraer la plantilla del primer CT y retiró el volumen creado.
+    ☑ Confirmar por SSH que la máscara privada del instalador producía un directorio de CT inaccesible al UID de LXC. Usar umask 022 solo en pct create y conservar umask 077 en el resto del instalador. Pasaron las pruebas Bash y ShellCheck.
+    ☑ Crear y arrancar un CT temporal Debian 12 sin red ni nesting en Proxmox 9.2 con el kernel activo. Confirmar que el aviso de systemd permite terminar pct create con código 0. Retirar los CT de prueba y apartar con copia la carpeta vacía del intento fallido. La VM sigue con el kernel que tenía. Queda configurar rutas de salida para los CT definitivos y completar su instalación.

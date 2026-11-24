@@ -31,9 +31,18 @@ trap 'rm -f -- "$calls_file"' EXIT
 ct_state() { printf 'new\n'; }
 start_ct() { :; }
 verify_ct() { :; }
-pct() { [[ "$1" == create ]] || return 99; printf '%s\n' "$*" >> "$calls_file"; }
+pct() {
+    [[ "$1" == create && "$(umask)" == 0022 ]] || return 99
+    printf '%s\n' "$*" >> "$calls_file"
+}
 TEMPLATE_VOLID=local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst
-for role in "${ALL_CTS[@]}"; do create_ct "$role"; done
+(
+    umask 077
+    for role in "${ALL_CTS[@]}"; do
+        create_ct "$role"
+        [[ "$(umask)" == 0077 ]]
+    done
+)
 [[ "$(wc -l < "$calls_file" | tr -d ' ')" == 4 ]]
 grep -q 'create 110 .*--unprivileged 1 --cores 1 --memory 512.*--rootfs local-lvm:4' "$calls_file"
 grep -q 'create 111 .*--unprivileged 1 --cores 1 --memory 512.*--rootfs local-lvm:4' "$calls_file"

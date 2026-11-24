@@ -263,13 +263,18 @@ create_ct() {
         index=$((index + 1))
     done <<< "$nics"
     info "Creando $role: CT $CT_ID, $CT_IP, $index NIC, $CT_CORES CPU, ${CT_RAM} MiB, $CT_DISK GiB."
-    pct create "$CT_ID" "$TEMPLATE_VOLID" \
-        --ostype debian --arch amd64 --hostname "$CT_HOSTNAME" \
-        --unprivileged 1 --cores "$CT_CORES" --memory "$CT_RAM" --swap 0 \
-        --rootfs "$DISK_STORAGE:$CT_DISK" --onboot 1 --startup "order=$CT_ORDER,up=15" \
-        "${options[@]}" \
-        --nameserver "$BOOTSTRAP_DNS" --searchdomain "$BASE_DOMAIN" \
-        --description "studio-infra:$role - Debian 12 nativo, gestionado desde este repositorio"
+    (
+        # Proxmox crea el directorio del CT con esta máscara. El proceso que
+        # extrae la plantilla necesita atravesarlo con el UID de LXC.
+        umask 022
+        pct create "$CT_ID" "$TEMPLATE_VOLID" \
+            --ostype debian --arch amd64 --hostname "$CT_HOSTNAME" \
+            --unprivileged 1 --cores "$CT_CORES" --memory "$CT_RAM" --swap 0 \
+            --rootfs "$DISK_STORAGE:$CT_DISK" --onboot 1 --startup "order=$CT_ORDER,up=15" \
+            "${options[@]}" \
+            --nameserver "$BOOTSTRAP_DNS" --searchdomain "$BASE_DOMAIN" \
+            --description "studio-infra:$role - Debian 12 nativo, gestionado desde este repositorio"
+    )
     start_ct "$CT_ID"
     verify_ct "$CT_ID"
 }
