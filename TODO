@@ -1,0 +1,131 @@
+☑ LIMPIEZA (artefactos retirados del repositorio; archivo temporal reversible)
+☑ REVISAR LANDING PAGE (aspecto aprobado)
+☐ ESTABLECERE VLANS Y NICS
+☑ interaccion con NDI service ¿puedo ver ips, disponibles bla bla bla? (Monitor implementado y probado en simulación; validación con servidor real pendiente.)
+
+Codex:
+    Peticiones completadas — recopilación del 24/11/2026
+    ☑ = implementado; disponible para tu revisión.
+    La validación realizada es local. El despliegue real en Proxmox sigue pendiente de comprobar.
+
+    Infraestructura y repositorio
+    ☑ Instalador automatizado en Bash para Proxmox, con validaciones, plantilla Debian 12 y post-install comunitario opcional.
+    ☑ Repositorio separado por CT: AdGuard Home, Caddy/panel, Bitfocus Companion y NDI Discovery Service; cuatro CTs en total.
+    ☑ Software instalado directamente dentro de cada CT y gestionado con systemd, sin Docker ni contenedores adicionales.
+    ☑ Configuración de ejemplo de IPs, gateway, CIDR, bridge, almacenamiento, IDs y recursos de los CTs.
+    ☑ Instalación y sincronización independientes por CT o para los cuatro mediante --ct.
+    ☑ Instalación idempotente: conserva los CTs existentes y permite actualizar su configuración sin recrearlos.
+    ☑ AdGuard con DNS local y Caddy con redirecciones HTTP 302; los servicios solo DNS apuntan directamente al equipo, sin proxy inverso.
+    ☑ Inventario inicial en services.json y conservación de los cambios hechos desde la web al sincronizar o reinstalar el código.
+    ☑ Documentación en español para instalación, sincronización, servicios y configuración DNS de los clientes.
+
+    Landing, identidad y muestra local
+    ☑ Revisar el código de referencia de la instalación doméstica y adaptar el concepto de inventario, descubrimiento y publicación de accesos.
+    ☑ Aplicar la estética de Fluge Audiovisuales: colores, modo oscuro, tarjetas, categorías y buscador.
+    ☑ Vectorizar el logo proporcionado y utilizarlo en la cabecera.
+    ☑ Retirar «Centro de control», «Tu estudio. Bajo control.» y los textos del hero; colocar «Servicio de control» junto al logo.
+    ☑ Extender el fondo geométrico del hero a toda la página y oscurecerlo según las revisiones solicitadas.
+    ☑ Hacer más visibles los botones del menú superior, con un aspecto más elegante y moderno.
+    ☑ Mantener el fondo fijo horizontalmente al aparecer o desaparecer la barra de desplazamiento.
+    ☑ Preparar la muestra persistente con servidor local en http://127.0.0.1:8787/ y equipos, DNS y redirecciones simulados.
+    ☑ Favicon con solo el símbolo de Fluge, sin texto y con fondo transparente (alpha).
+    ☑ Configurar el nombre de la instalación y mostrarlo bajo «Servicio de control», ajustando ambos textos al tamaño del logo.
+    ☑ Adaptar la interfaz a móvil y escritorio, incluidas las acciones de cuentas.
+
+    Servicios, equipos y configuración
+    ☑ Buscar servicios y equipos, registrar dispositivos conocidos o descubiertos y gestionar sus fichas desde el panel.
+    ☑ Mostrar «Editar servicio» cuando un equipo ya tiene servicios asociados; permitir elegir si tiene varios.
+    ☑ Unificar Guardar y aplicar: guardar, editar, borrar, importar y cambiar ajustes actualiza automáticamente los accesos.
+    ☑ Retirar la aplicación manual habitual y mostrar el reintento únicamente cuando no se confirma la publicación.
+    ☑ Ofrecer «Con redirección · puerto» y «Sin redirección · solo DNS», con sus campos correspondientes.
+    ☑ Al pulsar una categoría con «Todos» seleccionado, seleccionar únicamente esa categoría.
+    ☑ Añadir, renombrar y eliminar categorías desde Configuración, reflejándolas en filtros, servicios, equipos y formularios.
+    ☑ Al eliminar una categoría en uso, trasladar sus elementos a otra sin borrar servicios ni equipos.
+    ☑ Importar y exportar el inventario manteniendo las cuentas y credenciales aparte.
+    ☑ Mostrar las reglas aplicadas en la muestra, con la dirección DNS y el destino de cada redirección indicando su puerto, incluidos 80/443 por defecto.
+
+    Redes y escaneo
+    ☑ Escanear rangos y subredes privadas, con progreso, cancelación y detección de equipos, nombres, MAC y puertos cuando estén disponibles.
+    ☑ Incluir los puertos de Companion y NDI Discovery en las comprobaciones del escáner.
+    ☑ Filtros Activos, No activos, Nuevos, Registrados, DHCP y Todos.
+    ☑ «No activos» evalúa solo las IP realmente comprobadas: no marca equipos fuera del rango ni direcciones pendientes o canceladas.
+    ☑ Aclarar el filtro DHCP: identifica equipos activos dentro del pool informado; no consulta concesiones ni modifica el router.
+    ☑ Gestionar varias redes con nombre, red/CIDR y pool DHCP propio opcional; añadirlas, editarlas y eliminarlas desde Configuración.
+    ☑ Reflejar las redes como presets en Escaneo y conservar la configuración anterior al pasar al nuevo formato.
+    ☑ Clasificar cada IP con el pool DHCP de su red, también en búsquedas que mezclen redes; priorizar la subred más específica si se solapan.
+    ☑ Seleccionar «Todas las redes» por defecto, rellenando los CIDR separados por « ; » y escaneándolos juntos al iniciar.
+    ☑ Evitar escanear dos veces la misma IP cuando se solapan rangos y mantener el límite de direcciones por escaneo.
+
+    Cuentas y contraseñas
+    ☑ Trasladar la gestión de cuentas y contraseñas a Cuentas, fuera de Copia del inventario.
+    ☑ Proteger la cuenta principal: no se puede eliminar, desactivar ni degradar.
+    ☑ Permitir cambiar contraseñas únicamente a la cuenta principal, incluida la suya, sin pedir la contraseña antigua.
+    ☑ Impedir el cambio de contraseñas a las demás cuentas, incluso administradoras, tanto en la interfaz como en la API.
+    ☑ Colocar «Cambiar contraseña» en la fila de cada usuario, incluida la cuenta principal, visible para esta última.
+    ☑ Pedir y comprobar dos entradas coincidentes de la contraseña al crear usuarios.
+    ☑ Pedir y comprobar dos entradas coincidentes de la nueva contraseña al cambiarla.
+    ☑ Resaltar el usuario de la sesión actual e identificar por separado la cuenta principal.
+    ☑ Invalidar las sesiones anteriores al cambiar una contraseña; la cuenta principal conserva la sesión desde la que cambia la suya.
+
+    Comprobaciones y seguimiento
+    ☑ Pruebas locales de API, escaneo y navegador; última comprobación de NDI: 27 pruebas del panel, 8 del helper SDK y revisión responsive a 320, 390, 768 y 1440 px. Las comprobaciones reales de Proxmox/NDI siguen pendientes.
+    ☑ Recopilar las peticiones completadas en este apartado y dejar la instrucción de actualizarlo al terminar futuras peticiones.
+
+    Monitor NDI Discovery Server — 24/11/2026
+    ☑ Estudiar la documentación oficial y las cabeceras del SDK v6 Linux antes de implementar la consulta nativa.
+    ☑ Añadir el módulo opcional a Configuración con Enable/Disable, IP/host, puerto, polling, timeout, grupos, Probar conexión y Guardar.
+    ☑ Persistir los ajustes en config.json y aplicarlos sin reinicios; validar host, puerto, intervalos y grupos en navegador y servidor.
+    ☑ Reutilizar PHP-FPM y añadir un helper Python nativo con ctypes, sin Docker ni otro servidor permanente.
+    ☑ Incorporar GET /api/ndi/status y POST /api/ndi/test con sesión, permisos y CSRF; caché compartida y consultas puntuales limitadas por timeout.
+    ☑ Consultar TCP y libndi mediante configuración temporal, NDI_CONFIG_DIR y finder del SDK, usando el Discovery Server y grupos configurados.
+    ☑ Mantener el diagnóstico TCP si falta libndi, con un aviso y documentación para instalar el runtime oficial en Debian 12.
+    ☑ Mostrar estado, IP:puerto, latencia, actualización, contador y fuentes NDI con filtro; adaptar la tabla a tarjetas en móvil.
+    ☑ Ocultar la vista al desactivar y detener el polling al salir de ella, ocultar la pestaña del navegador, cerrar sesión o desactivar el módulo.
+    ☑ Añadir cinco fuentes AV simuladas con hora/latencia variables y escenarios Normal, Offline, 0 fuentes y falta de libndi al modo demo habitual.
+    ☑ Actualizar el despliegue nativo, las rutas de Caddy, las dependencias, la documentación y la suite de pruebas del módulo.
+    ☑ Validar API, caché, fallback, ejecución y limpieza del helper, ABI del finder, escenarios y navegador; la conexión NDI real queda pendiente de comprobar en la instalación.
+
+    Registro, roles y disponibilidad NDI — 24/11/2026
+    ☑ Añadir Registro de actividad al pie de la vista NDI con detecciones, desapariciones, recuperaciones, cambios de dirección y avisos del servidor.
+    ☑ Conservar el historial y los equipos al recargar, con la última vez vistos y estados Disponible, No visible o Sin comprobar.
+    ☑ Distinguir emisores y receptores anunciados y mostrar cuándo un hostname tiene ambas funciones, con filtros por función.
+    ☑ Consultar receptores mediante la API estándar opcional del SDK NDI 6.2+, tras revisar sus cabeceras y documentación; mantener emisores y un aviso si no está disponible.
+    ☑ Conservar el último avistamiento sin clasificar equipos como desconectados cuando falla la consulta, falta libndi o no se pueden consultar receptores.
+    ☑ Separar el historial por servidor, grupos y modo demo/real, sin duplicar eventos por respuestas cacheadas o consultas estables.
+    ☑ Limitar la retención a 500 eventos y 1.000 entidades por combinación, conservando las cuatro combinaciones recientes.
+    ☑ Ampliar la simulación a cinco emisores y dos receptores, incluidos equipos con ambas funciones, para comprobar bajas y recuperaciones desde los escenarios.
+    ☑ Validar persistencia, recuperación, roles, API del SDK y vista móvil; documentar que el historial cubre las consultas observadas y que el rol no certifica tráfico de vídeo/audio en curso.
+    ☑ Añadir «Limpiar registro» para administradores en el log NDI: vacía los eventos del servidor/grupos actuales, conserva equipos y últimos avistamientos y evita que la caché restaure los eventos borrados; comprobado en API y navegador.
+
+    Preparación de producción y housekeeping — 24/11/2026
+    ☑ Fijar FLUGE_DEMO=0, NDI_MOCK=false y Python nativo en el pool PHP-FPM de producción.
+    ☑ Retirar credenciales y autocompletado de muestra del login; esperar a inicializar la sesión antes de habilitar Entrar.
+    ☑ Excluir el router de desarrollo y las cachés Python del paquete que se instala en el CT.
+    ☑ Revisar permisos ejecutables, limitar los permisos de la CI a lectura y ampliar las exclusiones de artefactos locales en Git.
+    ☑ Organizar el logo raster original en assets/branding y priorizar las instrucciones de instalación real en el README.
+    ☑ Detener el servidor local y retirar generated, el entorno virtual, las cachés, capturas y herramientas portátiles de esta sesión. El borrado recursivo fue rechazado por la revisión automática; el material se conserva en una carpeta fluge-release-cleanup bajo %TEMP%, fuera del repositorio.
+    ☑ Validar 56 pruebas Python (4 POSIX omitidas en Windows), 7 JavaScript, navegador responsive, sintaxis de 22 Bash/25 PHP, ShellCheck y pruebas Bash de plantillas/IDs.
+    ☑ Revisar el paquete de producción sin datos ni credenciales de muestra, comprobar el login real con contraseña privada aleatoria y validar la configuración de Caddy. El despliegue en Proxmox y la conexión NDI real siguen pendientes de validar.
+
+    Revisión del instalador — 24/11/2026
+    ☑ Revisar creación y actualización de los cuatro CTs, dependencias nativas, unidades systemd, confirmaciones, copias y recuperación ante fallos.
+    ☑ Impedir que una sincronización recurra al services.json inicial si el panel existente está detenido, incompleto, no exporta o no se puede verificar en el clúster.
+    ☑ Verificar la identidad del CT antes de arrancarlo o ejecutar su exportador; detener la operación si falla la consulta del clúster o de su configuración.
+    ☑ Separar la validación de config.env de la semilla: conservar el inventario operativo aunque falte services.json y permitir gestionar Companion/NDI sin depender del panel.
+    ☑ Hacer --check y --render-only completamente locales, sin consultar Proxmox; validar las acciones y el inventario antes de crear CTs o de ofrecer el post-install del host.
+    ☑ Rechazar DNS de arranque y upstreams que apunten a cualquiera de los cuatro CTs; exigir al menos un upstream y actualizar ejemplo y documentación.
+    ☑ Ampliar las pruebas Bash del coordinador con instalación nueva, actualización, omisión de existentes, despliegue independiente, errores de inventario, IDs de otros nodos/VMs y fallos de identidad.
+    ☑ Ejecutar 58 pruebas Python (54 superadas y 4 POSIX omitidas en Windows), pruebas Bash, sintaxis y ShellCheck. Validación real sobre Proxmox y definición de NIC/VLAN pendientes; sin arrancar la muestra local permanente.
+    ☑ Comparar el instalador original con el flujo de cuestionario propuesto.
+
+    Cuestionario de instalación — 24/11/2026
+    ☑ Ofrecer primero el post-install comunitario y después preguntar por separado si instalar AdGuard, Caddy, Companion y NDI.
+    ☑ Detectar IPv4 y puentes Linux de Proxmox. Preguntar por las NIC de cada CT elegido, su IPv4/CIDR, puente, VLAN opcional y puerta de enlace.
+    ☑ Mostrar la red y las operaciones, validar las identidades y guardar config.env con permisos privados al confirmar, con copia de la configuración anterior si cambia.
+    ☑ Reutilizar la selección guardada con install.sh --yes y sync.sh. Mantener --from-config para archivos preparados a mano y la aceptación manual de la licencia NDI.
+    ☑ Permitir instalaciones parciales con artefactos solo para los CTs elegidos y sin accesos iniciales a CTs sin IP configurada.
+    ☑ Comprobar cuestionario, cancelación, NIC con VLAN, selección parcial e instalación y sincronización con dobles de Proxmox. Pasaron Bash, ShellCheck y 56 pruebas Python. Quedan la prueba en Proxmox real y los valores de red de la instalación.
+
+    Preparación para GitHub — 24/11/2026
+    ☑ Revisar los 99 archivos del primer commit, incluidos los scripts nuevos y sus permisos. La copia revisada contiene los logos de Fluge y excluye configuración privada, credenciales de instalación, artefactos locales y binarios NDI.
+    ☑ Validar una copia del contenido de Git con 56 pruebas Python superadas, 4 POSIX omitidas en Windows, 7 JavaScript, sintaxis Bash/PHP, ShellCheck, instalación simulada y generación de la configuración de ejemplo. Quedan la ejecución de Actions tras el push y la prueba en Proxmox real.

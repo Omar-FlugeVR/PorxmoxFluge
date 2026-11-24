@@ -1,0 +1,29 @@
+name: Validar instalador
+permissions:
+  contents: read
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencias de validación
+        run: sudo apt-get update && sudo apt-get install -y shellcheck python3-yaml php-cli php-curl
+      - name: Sintaxis Bash y análisis estático
+        run: |
+          find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 -n1 bash -n
+          shellcheck -x install.sh sync.sh scripts/*.sh cts/*/*.sh cts/*/provision/*.sh tests/test-bash.sh
+          find cts/caddy/panel -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Generadores y reversión de configuración
+        run: |
+          /usr/bin/python3 -m unittest discover -s tests -v
+          bash tests/test-bash.sh
+          node --experimental-default-type=module --test tests/scanner.mjs tests/ndi.mjs
+      - name: Generar ejemplo
+        run: |
+          cp config.env.example config.env
+          bash sync.sh --check
+          bash sync.sh --render-only

@@ -1,0 +1,16 @@
+config.env
+.config.env.*
+.secrets/
+generated/
+__pycache__/
+*.py[cod]
+.venv/
+.coverage
+.pytest_cache/
+*.log
+*.tmp
+*.bak
+*.tar
+*.tar.gz
+.DS_Store
+Thumbs.db

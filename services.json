@@ -1,0 +1,35 @@
+[
+  {
+    "name": "Proxmox VE",
+    "subdomain": "proxmox",
+    "target": "https://${PROXMOX_IP}:8006",
+    "category": "Infraestructura",
+    "description": "Host de virtualización y contenedores del estudio.",
+    "mode": "redirect"
+  },
+  {
+    "name": "Bitfocus Companion",
+    "subdomain": "companion",
+    "target": "http://${COMPANION_IP}:${COMPANION_PORT}",
+    "category": "Control / Broadcast",
+    "description": "Botoneras, automatizaciones y control de equipos AV.",
+    "mode": "redirect"
+  },
+  {
+    "name": "AdGuard Home",
+    "subdomain": "adguard",
+    "target": "http://${ADGUARD_IP}",
+    "category": "Infraestructura",
+    "description": "DNS local, reescrituras y filtrado de la red.",
+    "mode": "redirect"
+  },
+  {
+    "name": "NDI Discovery Service",
+    "subdomain": "ndi",
+    "target": "",
+    "ip": "${NDI_IP}",
+    "category": "Red / Vídeo",
+    "description": "Descubrimiento NDI. Usa este nombre en tus clientes NDI.",
+    "mode": "dns_only"
+  }
+]

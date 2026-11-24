@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+caddy_settings() {
+    # Consumidas por create_ct/verify_ct en scripts/common.sh.
+    # shellcheck disable=SC2034
+    CT_ID="$CADDY_CT_ID" CT_IP="$CADDY_IP" CT_HOSTNAME="$CADDY_HOSTNAME" CT_CORES=1 CT_RAM=512 CT_DISK=4 CT_ORDER=2
+}
+
+caddy_assert_services() {
+    pct exec "$CADDY_CT_ID" -- bash -c 'command -v caddy >/dev/null && systemctl cat caddy.service >/dev/null' \
+        || die "Caddy no está instalado en CT $CADDY_CT_ID; no se aprovisionan CTs preexistentes."
+}
+
+provision_caddy() {
+    pct exec "$CADDY_CT_ID" -- bash -s -- "$TIMEZONE" \
+        < "$REPO_DIR/cts/caddy/provision/install.sh"
+    ok 'Caddy instalado desde el repositorio apt oficial.'
+}
+
+apply_caddy() {
+    local stage
+    need_commands tar
+    mkdir -p -- "$REPO_DIR/.secrets"
+    chmod 700 -- "$REPO_DIR/.secrets"
+    PYTHONPATH="$REPO_DIR/scripts" python3 - "$REPO_DIR/.secrets" "$TEMP_DIR/rendered/caddy/panel-config.json" <<'PY'
+import ipaddress, json, os, pathlib, secrets, sys
+from inventory import role_networks, settings
+private, destination = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+auth = private / 'panel-admin.json'
+if not auth.exists():
+    with os.fdopen(os.open(auth, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as out:
+        json.dump({'username': 'admin', 'password': 'Fluge1' + secrets.token_urlsafe(24)}, out)
+os.chmod(auth, 0o600)
+adguard_file = private / 'adguard-admin.json'
+adguard = json.loads(adguard_file.read_text()) if adguard_file.exists() else {}
+cfg = settings()
+net = ipaddress.ip_network(role_networks(cfg, 'caddy')[0]['ip'], strict=False)
+first, last = int(net.network_address) + 1, int(net.broadcast_address) - 1
+config = {'baseDomain': os.environ['BASE_DOMAIN'],
+          'dashboardDomain': os.environ['LANDING_SUBDOMAIN'] + '.' + os.environ['BASE_DOMAIN'],
+          'serverProxyIp': cfg['CADDY_IP'], 'adguardUrl': 'http://' + cfg['ADGUARD_IP'] if cfg['ADGUARD_IP'] else '',
+          'adguardUser': adguard.get('username', ''), 'adguardPass': adguard.get('password', ''),
+          'scanAllowedCidrs': [str(net)], 'scanPresets': [],
+          'dhcpRange': {'start': str(ipaddress.ip_address(min(last, first + 99))),
+                        'end': str(ipaddress.ip_address(min(last, first + 249)))}}
+destination.write_text(json.dumps(config), encoding='utf-8')
+os.chmod(destination, 0o600)
+PY
+    tar -C "$REPO_DIR/cts/caddy/panel" --exclude='__pycache__' --exclude='*.pyc' \
+        --exclude='./bin/demo-router.php' -cf "$TEMP_DIR/panel.tar" .
+    stage="$(pct exec "$CADDY_CT_ID" -- mktemp -d /tmp/studio-caddy.XXXXXXXX)"
+    pct push "$CADDY_CT_ID" "$TEMP_DIR/rendered/caddy/Caddyfile" "$stage/Caddyfile" --perms 0600
+    pct push "$CADDY_CT_ID" "$TEMP_DIR/rendered/caddy/seed.json" "$stage/seed.json" --perms 0600
+    pct push "$CADDY_CT_ID" "$TEMP_DIR/rendered/caddy/panel-config.json" "$stage/config.json" --perms 0600
+    pct push "$CADDY_CT_ID" "$REPO_DIR/.secrets/panel-admin.json" "$stage/auth.json" --perms 0600
+    pct push "$CADDY_CT_ID" "$TEMP_DIR/panel.tar" "$stage/panel.tar" --perms 0600
+    pct exec "$CADDY_CT_ID" -- bash -s < "$REPO_DIR/cts/caddy/provision/panel.sh"
+    pct exec "$CADDY_CT_ID" -- bash -s -- "$stage" < "$REPO_DIR/cts/caddy/provision/apply.sh"
+    ok "Panel y Caddy aplicados. Acceso inicial en $REPO_DIR/.secrets/panel-admin.json."
+}

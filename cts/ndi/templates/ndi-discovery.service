@@ -1,0 +1,19 @@
+[Unit]
+Description=NDI Discovery Service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ndi
+Group=ndi
+WorkingDirectory=/opt/ndi-discovery
+Environment=LD_LIBRARY_PATH=/opt/ndi-discovery/lib
+ExecStart=/opt/ndi-discovery/bin/ndi-discovery-server -service -config /etc/ndi/ndi-discovery-service.v1.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
