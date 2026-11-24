@@ -23,7 +23,7 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
-load_config
+load_config "$REPO_DIR/config.env"
 select_configured_cts "$TARGET_CT"
 if [[ "$MODE" == check ]]; then
     python3 "$REPO_DIR/scripts/render.py" --services "$REPO_DIR/services.json" --ct "$TARGET_CT"

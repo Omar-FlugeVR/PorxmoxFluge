@@ -186,7 +186,7 @@ source "$FLUGE_INSTALL_ROOT/scripts/common.sh"
 REPO_DIR="$FLUGE_INSTALL_TEMP/checkout"
 init_runtime() { :; }
 load_config() {
-    local file="${1:-$REPO_DIR/config.env}"
+    local file="$1"
     if [[ -f "$file" ]]; then source_config "$file"; fi
 }
 require_proxmox() { TEMP_DIR="$FLUGE_INSTALL_TEMP"; }

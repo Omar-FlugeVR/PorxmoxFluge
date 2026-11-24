@@ -51,7 +51,7 @@ source_config() {
 }
 
 load_config() {
-    local file="${1:-$REPO_DIR/config.env}"
+    local file="$1"
     [[ -f "$file" ]] || die 'Ejecuta ./install.sh en una terminal para generar config.env o prepara el archivo a partir del ejemplo.'
     source_config "$file"
     need_commands python3

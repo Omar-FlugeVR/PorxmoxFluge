@@ -128,4 +128,5 @@ Codex:
 
     Preparación para GitHub — 24/11/2026
     ☑ Revisar los 99 archivos del primer commit, incluidos los scripts nuevos y sus permisos. La copia revisada contiene los logos de Fluge y excluye configuración privada, credenciales de instalación, artefactos locales y binarios NDI.
-    ☑ Validar una copia del contenido de Git con 56 pruebas Python superadas, 4 POSIX omitidas en Windows, 7 JavaScript, sintaxis Bash/PHP, ShellCheck, instalación simulada y generación de la configuración de ejemplo. Quedan la ejecución de Actions tras el push y la prueba en Proxmox real.
+    ☑ Validar una copia del contenido de Git con 56 pruebas Python superadas, 4 POSIX omitidas en Windows, 7 JavaScript, sintaxis Bash/PHP, ShellCheck, instalación simulada y generación de la configuración de ejemplo.
+    ☑ Confirmar que el primer commit llegó a main. Corregir SC2119 en Actions pasando explícitamente el archivo de configuración al cargarlo. La corrección pasó ShellCheck 0.9 y 0.11, sintaxis Bash/PHP, pruebas Bash, --check y --render-only en una copia local. Quedan la ejecución de Actions con la corrección y la prueba en Proxmox real.

@@ -66,7 +66,7 @@ if [[ "$QUESTIONNAIRE" == 1 ]]; then
     [[ -f "$candidate" ]] || exit 0
     load_config "$candidate"
 else
-    load_config
+    load_config "$REPO_DIR/config.env"
 fi
 select_configured_cts "$TARGET_CT"
 verify_host_ip
