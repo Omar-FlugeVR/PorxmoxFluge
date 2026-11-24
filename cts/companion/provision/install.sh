@@ -18,7 +18,8 @@ curl --fail --silent --show-error --location --retry 3 \
     https://raw.githubusercontent.com/bitfocus/companion-pi/main/install.sh --output "$stage/install.sh"
 # El instalador oficial obtiene el build headless y su runtime Node incluido.
 # No se compila Companion, no se instala Node globalmente y no se usa Docker.
-COMPANION_BUILD="$build" bash "$stage/install.sh"
+# El instalador se ejecuta como root y el servicio lee sus archivos como companion.
+(umask 022; COMPANION_BUILD="$build" bash "$stage/install.sh")
 test -f /opt/companion/main.js
 test -x /usr/local/src/companionpi/launch.sh
 systemctl enable companion
