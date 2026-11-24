@@ -1,7 +1,8 @@
-☑ LIMPIEZA (artefactos retirados del repositorio; archivo temporal reversible)
-☑ REVISAR LANDING PAGE (aspecto aprobado)
-☐ ESTABLECERE VLANS Y NICS
-☑ interaccion con NDI service ¿puedo ver ips, disponibles bla bla bla? (Monitor implementado y probado en simulación; validación con servidor real pendiente.)
+USUARIO:
+    ☑ LIMPIEZA (artefactos retirados del repositorio; archivo temporal reversible)
+    ☑ REVISAR LANDING PAGE (aspecto aprobado)
+    ☐ ESTABLECERE VLANS Y NICS
+    ☑ interaccion con NDI service ¿puedo ver ips, disponibles bla bla bla? (Monitor implementado y probado en simulación; validación con servidor real pendiente.)
 
 Codex:
     Peticiones completadas — recopilación del 24/11/2026
@@ -137,3 +138,4 @@ Codex:
     ☑ Aplicar tras confirmar el perfil comunitario para desactivar los repositorios Enterprise de PVE y Ceph, disponer de pve-no-subscription, omitir pvetest, quitar el aviso de suscripción y actualizar Proxmox.
     ☑ Conservar HA y Corosync, responder no al reinicio, verificar la revisión del script y detener el perfil al fallar APT.
     ☑ Documentar el perfil y comprobar con dobles las variantes de los menús de Proxmox 8/9, el rechazo de una revisión distinta, el bloqueo del reinicio y el orden respecto al cuestionario. ShellCheck 0.9/0.11 y pruebas Bash correctas. Queda probar el perfil en el host.
+    ☑ Ajustar el perfil a la captura: omitir añadir o reemplazar repositorios de paquetes Ceph y desactivar sus entradas Enterprise existentes antes de actualizar, con copia previa de los archivos .list modificados. Se conservan las demás fuentes Ceph. Comprobados selección, copias, repetición y fallos con pruebas Bash y ShellCheck 0.9/0.11; pendiente el host real.

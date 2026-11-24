@@ -18,11 +18,8 @@ post_install_choice() {
             if [[ " ${tags[*]} " == *' enable '* ]]; then answer=enable
             elif [[ " ${tags[*]} " == *' keep '* ]]; then answer=keep
             else answer=yes; fi ;;
-        'CEPH PACKAGE REPOSITORIES')
-            # PVE 8 ofrece corregir ceph.list. PVE 9 ofrece añadir nuevas fuentes.
-            if [[ "$message" == *"Correct "* ]]; then answer=yes; else answer=no; fi ;;
         'SUBSCRIPTION NAG'|UPDATE) answer=yes ;;
-        SOURCES|PVETEST|'HIGH AVAILABILITY'|COROSYNC|REBOOT) answer=no ;;
+        SOURCES|'CEPH PACKAGE REPOSITORIES'|PVETEST|'HIGH AVAILABILITY'|COROSYNC|REBOOT) answer=no ;;
         *) return 64 ;;
     esac
     for tag in "${tags[@]}"; do
@@ -32,6 +29,17 @@ post_install_choice() {
         fi
     done
     return 64
+}
+
+disable_legacy_ceph_enterprise() {
+    local apt_dir="$1" file
+    local pattern='^[[:blank:]]*deb(-src)?[[:blank:]]+(\[[^]]*\][[:blank:]]+)?https?://enterprise\.proxmox\.com/debian/ceph[-/]'
+    for file in "$apt_dir/sources.list" "$apt_dir/sources.list.d/"*.list; do
+        if [[ -f "$file" ]] && grep -Eq "$pattern" "$file"; then
+            cp -p -- "$file" "$file.fluge-before-post-install" || return
+            sed -i -E "\\|$pattern|s/^/# /" "$file" || return
+        fi
+    done
 }
 
 run_community_post_install() (
@@ -93,6 +101,7 @@ run_community_post_install() (
     apt() {
         # Actualizar el índice antes de reinstalar el widget del aviso.
         if [[ "$indexes_ready" == 0 ]]; then
+            disable_legacy_ceph_enterprise /etc/apt || exit "$?"
             apt-get -o APT::Update::Error-Mode=any update >&8 2>&1 || exit "$?"
             indexes_ready=1
         fi

@@ -43,7 +43,7 @@ require_proxmox
 if [[ "$ASSUME_YES" == 0 || "$POST_INSTALL" == 1 ]]; then
     info 'Perfil del post-install: desactivar los repositorios Enterprise de PVE y Ceph, habilitar pve-no-subscription, quitar el aviso de suscripción y actualizar.'
     info 'Se conserva la configuración de HA y Corosync. Se omite pvetest y se pospone el reinicio del host.'
-    info 'En Proxmox 8, el script comunitario deja las entradas de ceph.list desactivadas.'
+    info 'Se omite añadir repositorios de paquetes Ceph y se desactivan las entradas Ceph Enterprise existentes.'
     saved_yes="$ASSUME_YES"
     ASSUME_YES=0
     if confirm '¿Ejecutar el post-install comunitario de Proxmox VE?' no; then

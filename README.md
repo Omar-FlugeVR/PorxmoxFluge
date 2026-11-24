@@ -33,13 +33,14 @@ El cuestionario ofrece primero el post-install comunitario. Tras confirmar, apli
 | --- | --- |
 | Repositorios Enterprise de PVE y Ceph | Desactivar |
 | Repositorio `pve-no-subscription` | Activar o conservar activo |
+| Añadir o reemplazar repositorios de paquetes Ceph | No |
 | Añadir `pvetest` | No |
 | Quitar el aviso de suscripción | Sí |
 | Cambiar High Availability o Corosync | No |
 | Actualizar Proxmox VE | Sí |
 | Reiniciar el host ahora | No |
 
-En Proxmox 8, el script comunitario reemplaza `ceph.list` por una plantilla con las entradas desactivadas. Tenlo en cuenta si el nodo usa Ceph. La actualización puede reiniciar servicios y un kernel nuevo se usará al reiniciar el nodo manualmente.
+Antes de actualizar, se comentan las entradas Ceph Enterprise activas en los archivos `.list`, con copia previa en `*.fluge-before-post-install`. Las demás entradas de esos archivos se conservan. En Proxmox 9 el script comunitario también desactiva Ceph Enterprise en el formato `.sources`. La actualización puede reiniciar servicios y un kernel nuevo se usará al reiniciar el nodo manualmente.
 
 Después responde sí o no para AdGuard, Caddy, Companion y NDI. El asistente detecta las IPv4 y los puentes Linux del host. Pide el almacenamiento, el DNS para instalar paquetes y los ajustes de los CTs elegidos. Para cada NIC indica el puente, la IPv4/CIDR, la VLAN opcional y la puerta de enlace. Usa `-` para vaciar un valor opcional. La primera NIC lleva la IP del servicio y puedes configurar una puerta de enlace por CT. Prepara en Proxmox los puentes que vayas a usar y las VLAN permitidas.
 
