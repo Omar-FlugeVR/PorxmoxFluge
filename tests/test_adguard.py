@@ -65,7 +65,8 @@ class AdGuardTests(unittest.TestCase):
                          patch.object(adguard, "active", return_value=True), \
                          patch.object(adguard, "run", side_effect=fake_run), \
                          patch.object(adguard, "wait_active"), \
-                         patch.object(adguard.subprocess, "run"):
+                         patch.object(adguard.subprocess, "run"), \
+                         patch.object(adguard.signal, "signal"):
                         with self.assertRaises(subprocess.CalledProcessError):
                             adguard.apply({"rewrites": [{"domain": "*.lan", "answer": "192.168.1.12"}]})
                     self.assertEqual(config.read_text(encoding="utf-8"), content)
