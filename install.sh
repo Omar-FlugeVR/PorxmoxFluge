@@ -13,7 +13,7 @@ Uso: ./install.sh [--ct all|adguard|caddy|companion|ndi] [--from-config | --yes]
   --from-config      Usar config.env con confirmaciones y sin cuestionario.
   --yes              Usar config.env y crear los CTs seleccionados ausentes sin preguntas.
   --update-existing  Autorizar solo configuración en CTs existentes compatibles.
-  --post-install     Pedir ejecutar también el post-install comunitario de PVE.
+  --post-install     Ofrecer el perfil comunitario de actualización sin reinicio.
                      Siempre requiere confirmación en una terminal, incluso con --yes.
   --help             Mostrar ayuda.
 NDI nuevo: la licencia oficial requiere una terminal y aceptación manual, incluso con --yes.
@@ -41,15 +41,13 @@ select_cts "$TARGET_CT"
 
 require_proxmox
 if [[ "$ASSUME_YES" == 0 || "$POST_INSTALL" == 1 ]]; then
-    warn 'El post-install comunitario ofrece cambiar repositorios y el aviso de suscripción. Si aparece la opción de reiniciar, posponla hasta terminar.'
+    info 'Perfil del post-install: desactivar los repositorios Enterprise de PVE y Ceph, habilitar pve-no-subscription, quitar el aviso de suscripción y actualizar.'
+    info 'Se conserva la configuración de HA y Corosync. Se omite pvetest y se pospone el reinicio del host.'
+    info 'En Proxmox 8, el script comunitario deja las entradas de ceph.list desactivadas.'
     saved_yes="$ASSUME_YES"
     ASSUME_YES=0
     if confirm '¿Ejecutar el post-install comunitario de Proxmox VE?' no; then
-        need_commands curl
-        curl --fail --silent --show-error --location --retry 3 \
-            https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/pve/post-pve-install.sh \
-            --output "$TEMP_DIR/post-pve-install.sh"
-        bash "$TEMP_DIR/post-pve-install.sh"
+        run_community_post_install
     fi
     ASSUME_YES="$saved_yes"
 fi

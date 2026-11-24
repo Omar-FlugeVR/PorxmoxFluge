@@ -27,7 +27,19 @@ cd studio-infra
 
 Si el host recién instalado tiene repositorios Enterprise sin una suscripción, desactívalos desde la interfaz de Proxmox y añade el repositorio `no-subscription` de la versión del host para poder instalar dependencias. Si ya tienes `git`, `curl` y `python3`, el paso opcional del instalador puede encargarse de esos repositorios.
 
-El cuestionario ofrece primero el [post-install de community-scripts/ProxmoxVE](https://community-scripts.org/scripts/post-pve-install). Si lo ejecutas, completa sus preguntas y pospón el reinicio hasta terminar el despliegue.
+El cuestionario ofrece primero el post-install comunitario. Tras confirmar, aplica el siguiente perfil a partir de una [revisión fijada de community-scripts/ProxmoxVE](https://github.com/community-scripts/ProxmoxVE/blob/11acd8db754db96c9088762e2deff9c16f0a35f7/tools/pve/post-pve-install.sh).
+
+| Opción | Respuesta |
+| --- | --- |
+| Repositorios Enterprise de PVE y Ceph | Desactivar |
+| Repositorio `pve-no-subscription` | Activar o conservar activo |
+| Añadir `pvetest` | No |
+| Quitar el aviso de suscripción | Sí |
+| Cambiar High Availability o Corosync | No |
+| Actualizar Proxmox VE | Sí |
+| Reiniciar el host ahora | No |
+
+En Proxmox 8, el script comunitario reemplaza `ceph.list` por una plantilla con las entradas desactivadas. Tenlo en cuenta si el nodo usa Ceph. La actualización puede reiniciar servicios y un kernel nuevo se usará al reiniciar el nodo manualmente.
 
 Después responde sí o no para AdGuard, Caddy, Companion y NDI. El asistente detecta las IPv4 y los puentes Linux del host. Pide el almacenamiento, el DNS para instalar paquetes y los ajustes de los CTs elegidos. Para cada NIC indica el puente, la IPv4/CIDR, la VLAN opcional y la puerta de enlace. Usa `-` para vaciar un valor opcional. La primera NIC lleva la IP del servicio y puedes configurar una puerta de enlace por CT. Prepara en Proxmox los puentes que vayas a usar y las VLAN permitidas.
 
@@ -305,7 +317,8 @@ Para desarrollar en Debian/Ubuntu sin Proxmox:
 apt-get install -y python3 python3-yaml shellcheck php-cli php-curl
 python3 -m unittest discover -s tests -v
 bash tests/test-bash.sh
-shellcheck -x install.sh sync.sh scripts/*.sh cts/*/*.sh cts/*/provision/*.sh tests/test-bash.sh
+bash tests/test-post-install.sh
+shellcheck -x install.sh sync.sh scripts/*.sh cts/*/*.sh cts/*/provision/*.sh tests/*.sh
 ```
 
 Las pruebas locales y la CI comprueban validación, generación por CT, selección de plantillas, rechazo de IDs ocupados y restauración ante fallos simulados. También ejecutan el coordinador Bash con dobles de Proxmox para comprobar instalación nueva, actualización, omisión de existentes, identidad antes del arranque y protección del inventario operativo ante fallos del panel. Las pruebas HTTP del panel usan un servidor PHP temporal con estado aislado; comprueban altas/bajas, publicación DNS/302, permisos, CSRF, revisiones y conservación de reglas ajenas. También comprueban el modo de producción con una contraseña privada aleatoria, sin simulación ni acceso mediante las credenciales de muestra. El helper de Caddy se prueba en POSIX. `tests/panel-browser.mjs` permite comprobar los flujos y las cinco vistas (incluida NDI) con Chromium mediante CDP; no requiere paquetes npm. La instalación real requiere comprobarla sobre un host Proxmox; estas pruebas no emulan LXC ni `systemd`.

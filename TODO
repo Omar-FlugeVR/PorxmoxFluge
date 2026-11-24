@@ -131,4 +131,9 @@ Codex:
     ☑ Validar una copia del contenido de Git con 56 pruebas Python superadas, 4 POSIX omitidas en Windows, 7 JavaScript, sintaxis Bash/PHP, ShellCheck, instalación simulada y generación de la configuración de ejemplo.
     ☑ Confirmar que el primer commit llegó a main. Corregir SC2119 pasando explícitamente el archivo de configuración al cargarlo. La corrección pasó el paso de sintaxis y análisis estático en Actions.
     ☑ Usar la URL pública de PorxmoxFluge en el comando de clonación del README.
-    ☑ Aislar los manejadores de señales en la prueba de reversión de AdGuard para que el resto de la suite pueda detener sus servidores PHP. Comprobado el aislamiento y 56 pruebas Python superadas en Windows, con 4 POSIX omitidas. Quedan la ejecución completa de Actions y la prueba en Proxmox real.
+    ☑ Aislar los manejadores de señales en la prueba de reversión de AdGuard para que el resto de la suite pueda detener sus servidores PHP. Comprobado el aislamiento en Windows y la ejecución completa de GitHub Actions en el commit 54284c4. Sigue pendiente la prueba en Proxmox real.
+
+    Post-install de Proxmox sin reinicio — 24/11/2026
+    ☑ Aplicar tras confirmar el perfil comunitario para desactivar los repositorios Enterprise de PVE y Ceph, disponer de pve-no-subscription, omitir pvetest, quitar el aviso de suscripción y actualizar Proxmox.
+    ☑ Conservar HA y Corosync, responder no al reinicio, verificar la revisión del script y detener el perfil al fallar APT.
+    ☑ Documentar el perfil y comprobar con dobles las variantes de los menús de Proxmox 8/9, el rechazo de una revisión distinta, el bloqueo del reinicio y el orden respecto al cuestionario. ShellCheck 0.9/0.11 y pruebas Bash correctas. Queda probar el perfil en el host.

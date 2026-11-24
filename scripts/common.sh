@@ -300,6 +300,8 @@ apply_native_service() {
 }
 
 # Los detalles de cada CT pertenecen a su módulo; aquí solo se comparten utilidades.
+# shellcheck source=scripts/post-install.sh
+source "$REPO_DIR/scripts/post-install.sh"
 # shellcheck source=cts/adguard/host.sh
 source "$REPO_DIR/cts/adguard/host.sh"
 # shellcheck source=cts/caddy/host.sh

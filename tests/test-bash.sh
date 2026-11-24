@@ -201,9 +201,7 @@ confirm() {
         *) return 1 ;;
     esac
 }
-curl() {
-    printf 'printf "post-install\\n" >> "$FLUGE_INSTALL_EVENTS"\n' > "${@: -1}"
-}
+run_community_post_install() { event post-install; }
 python3() {
     [[ "$1" == */questionnaire.py ]] || return 99
     event questionnaire
