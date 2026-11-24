@@ -8,10 +8,13 @@ ndi_settings() {
 }
 
 ndi_preflight() {
-    [[ -t 0 && -t 1 ]] || die 'Un NDI nuevo requiere una terminal para mostrar y aceptar la licencia oficial. Ejecuta el instalador desde la consola Proxmox o SSH interactivo; --yes no acepta licencias.'
-    if [[ -n "${NDI_INSTALLER_FILE:-}" ]]; then
-        if [[ "$NDI_INSTALLER_FILE" != /* ]]; then NDI_INSTALLER_FILE="$REPO_DIR/$NDI_INSTALLER_FILE"; fi
-        [[ -r "$NDI_INSTALLER_FILE" && -f "$NDI_INSTALLER_FILE" ]] || die "No se puede leer NDI_INSTALLER_FILE=$NDI_INSTALLER_FILE en el host."
+    local accepted
+    accepted="$(python3 "$REPO_DIR/scripts/ndi_installer.py" "$TEMP_DIR/ndi-installer")" || return
+    if [[ "$accepted" != "${NDI_LICENSE_SHA256:-}" ]]; then
+        export NDI_LICENSE_SHA256="$accepted"
+        # Consumido por install.sh para persistir una aceptación nueva.
+        # shellcheck disable=SC2034
+        NDI_LICENSE_CHANGED=1
     fi
 }
 
@@ -21,17 +24,12 @@ ndi_assert_services() {
 }
 
 provision_ndi() {
-    local stage source=download
+    local stage checksum installer="$TEMP_DIR/ndi-installer/vendor-install.sh"
+    checksum="$(sha256sum -- "$installer")"
     stage="$(pct exec "$NDI_CT_ID" -- mktemp -d /root/studio-ndi-install.XXXXXXXX)"
     pct push "$NDI_CT_ID" "$REPO_DIR/cts/ndi/provision/install.sh" "$stage/install.sh" --perms 0700
-    if [[ -n "${NDI_INSTALLER_FILE:-}" ]]; then
-        pct push "$NDI_CT_ID" "$NDI_INSTALLER_FILE" "$stage/installer.download" --perms 0600
-        source=local
-    fi
-    info 'El instalador oficial NDI mostrará su licencia; lee el texto y responde en esta terminal.'
-    # No redirigir stdin aquí: la licencia debe leer la respuesta del usuario.
-    pct exec "$NDI_CT_ID" -- bash "$stage/install.sh" "$stage" "$TIMEZONE" "$source" \
-        "${NDI_INSTALLER_URL:-https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz}" "${NDI_INSTALLER_SHA256:-}"
+    pct push "$NDI_CT_ID" "$installer" "$stage/vendor-install.sh" --perms 0600
+    pct exec "$NDI_CT_ID" -- bash "$stage/install.sh" "$stage" "$TIMEZONE" "${checksum%% *}" </dev/null
     ok "NDI Discovery instalado de forma nativa en CT $NDI_CT_ID."
 }
 

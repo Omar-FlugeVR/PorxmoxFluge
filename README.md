@@ -71,7 +71,7 @@ El despliegue usa una plantilla Debian 12 amd64 del storage o la descarga con `p
 - AdGuard usa su instalador oficial y la API local del asistente para generar `AdGuardHome.yaml`. Ofrece DNS en `53/UDP` y `53/TCP` y administración web en `80/TCP`.
 - Caddy se instala desde su repositorio `apt` con PHP 8.2-FPM, cURL y el panel. Puedes abrirlo por su IP si aún no has desplegado el DNS.
 - Companion usa el instalador headless oficial de Bitfocus con su runtime incluido y la unidad `companion.service`.
-- NDI instala `ndi-discovery-server` como `ndi-discovery.service` a partir del SDK oficial. La licencia exige aceptación en la terminal.
+- NDI instala `ndi-discovery-server` como `ndi-discovery.service` a partir del SDK oficial. El cuestionario muestra la licencia al elegir un CT de NDI nuevo, antes de crear los CTs.
 
 Las aplicaciones se comprueban antes de publicar el inventario en Caddy y AdGuard. Companion y NDI tienen verificaciones de respuesta HTTP y TCP, respectivamente. La descarga NDI puede necesitar que obtengas el paquete desde su web si el enlace directo no está disponible; en ese caso usa `NDI_INSTALLER_FILE` siguiendo la [guía del CT NDI](cts/ndi/README.md).
 
@@ -93,7 +93,7 @@ Para reutilizar la selección guardada:
 ./install.sh --yes          # Crea los CTs seleccionados que falten
 ```
 
-`--yes` omite el post-install y **respeta todos los CTs existentes**. La licencia de un NDI nuevo sigue requiriendo lectura y aceptación manual: `--yes` no la acepta y ese paso requiere terminal interactiva. Para autorizar únicamente la actualización de configuración en CTs existentes, usa `./install.sh --yes --update-existing`. `--post-install` permite ofrecer el post-install también junto a `--yes`, pero siempre exige confirmación en una terminal.
+`--yes` omite el post-install y **respeta todos los CTs existentes**. Para un CT de NDI nuevo, reutiliza la aceptación guardada en `config.env` si coincide con la licencia del paquete actual. La primera aceptación y los cambios de licencia se confirman en una terminal antes de crear los CTs. Para autorizar únicamente la actualización de configuración en CTs existentes, usa `./install.sh --yes --update-existing`. `--post-install` permite ofrecer el post-install también junto a `--yes`, pero siempre exige confirmación en una terminal.
 
 Para editar a mano desde cero, copia `config.env.example` a `config.env`, ajusta los datos y usa `--from-config`. El archivo permite fijar puertos, zona horaria, versión de Companion y origen del instalador NDI. Protege `config.env` y su copia porque el instalador los lee como configuración Bash de confianza.
 
@@ -304,10 +304,11 @@ cts/ndi/
   host.sh                        Recursos, licencia y operaciones desde Proxmox
   generate-config.py             Unidad, JSON y comprobación TCP
   templates/ndi-discovery.service Servicio nativo systemd
-  provision/install.sh           Instalación del paquete oficial con licencia visible
+  provision/install.sh           Instalación del paquete oficial revisado en el host
   README.md                      Guía del CT
 scripts/common.sh                Utilidades Proxmox compartidas
 scripts/questionnaire.py         Encuesta y generación de config.env
+scripts/ndi_installer.py         Preparación del paquete y aceptación de licencia NDI
 scripts/ct-network.py            Opciones de red para pct y comprobación de NIC
 scripts/provision/apply-service.py Copias, aplicación y rollback de servicios systemd
 scripts/inventory.py             Validación y resolución de variables

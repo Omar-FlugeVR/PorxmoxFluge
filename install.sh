@@ -33,7 +33,7 @@ Uso: ./install.sh [--ct all|adguard|caddy|companion|ndi] [--from-config | --yes]
   --post-install     Ofrecer el perfil comunitario de actualización sin reinicio.
                      Siempre requiere confirmación en una terminal, incluso con --yes.
   --help             Mostrar ayuda.
-NDI nuevo: la licencia oficial requiere una terminal y aceptación manual, incluso con --yes.
+NDI nuevo: se pide aceptación en la terminal si la licencia es nueva o ha cambiado.
 Validar/previsualizar sin Proxmox: ./sync.sh --check / --render-only
 HELP
 }
@@ -42,6 +42,9 @@ POST_INSTALL=0
 UPDATE_EXISTING=0
 QUESTIONNAIRE=1
 TARGET_CT=all
+NDI_LICENSE_CHANGED=0
+# La aceptación se lee del config.env local, no del entorno de la sesión.
+export NDI_LICENSE_SHA256=''
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
         --ct) [[ "$#" -ge 2 ]] || die 'Falta el valor de --ct.'; TARGET_CT="$2"; shift ;;
@@ -147,7 +150,12 @@ for role in "${active_roles[@]}"; do
     fi
 done
 render_selected "$TEMP_DIR/rendered" live "${active_roles[@]}"
-if [[ "$QUESTIONNAIRE" == 1 ]]; then
+if [[ "$NDI_LICENSE_CHANGED" == 1 ]]; then
+    if [[ "$QUESTIONNAIRE" == 0 ]]; then cp -- "$REPO_DIR/config.env" "$candidate"; fi
+    sed -i -E "/^NDI_LICENSE_SHA256=([[:xdigit:]]{64}|''|\"\")?$/d" "$candidate"
+    printf '\nNDI_LICENSE_SHA256=%s\n' "$NDI_LICENSE_SHA256" >> "$candidate"
+fi
+if [[ "$QUESTIONNAIRE" == 1 || "$NDI_LICENSE_CHANGED" == 1 ]]; then
     if [[ -f "$REPO_DIR/config.env" ]] && ! cmp -s "$candidate" "$REPO_DIR/config.env"; then
         install -m 0600 -- "$REPO_DIR/config.env" "$REPO_DIR/config.env.bak"
     fi

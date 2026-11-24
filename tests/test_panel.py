@@ -406,10 +406,11 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(sum(item['direction']=='receiver' for item in first['entities']),2)
         self.assertTrue(all(item['device_role']=='both' for item in first['entities'] if item['host']=='VMIX-MAIN'))
         self.assertTrue(all(item['available'] is True for item in first['entities']))
-        seen = {item['id']:item['last_seen'] for item in first['entities']}
         events = first['events']
         self.assertEqual(self.request('/api/ndi/status')[1]['events'],events,'Cache hits must not duplicate events')
-        self.assertEqual(self.ndi_refresh()['events'],events,'Stable probes must not flood the log')
+        stable = self.ndi_refresh()
+        self.assertEqual(stable['events'],events,'Stable probes must not flood the log')
+        seen = {item['id']:item['last_seen'] for item in stable['entities']}
         self.assertEqual(self.save_ndi(self.ndi_settings(mock_scenario='empty'))[0],200)
         missing = self.ndi_refresh()
         self.assertEqual(len(missing['entities']),7,'Missing devices must remain available for inspection')

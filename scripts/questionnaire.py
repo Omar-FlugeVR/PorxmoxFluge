@@ -11,6 +11,7 @@ import shlex
 import subprocess
 
 from inventory import CT_ROLES, ConfigError, LABEL, TOKEN, ipv4, nic_settings, role_networks, settings
+from ndi_installer import prepare_installer
 
 
 NAMES = {"adguard": "AdGuard Home", "caddy": "Caddy / panel Fluge",
@@ -51,6 +52,10 @@ def valid_dns(value, multiple=False):
     except ConfigError:
         return False
     return True
+
+
+def valid_ct_id(value):
+    return bool(re.fullmatch(r"[1-9][0-9]{2,8}", value))
 
 
 def host_network():
@@ -136,8 +141,16 @@ def questionnaire(destination, candidates, existing):
         print("No se ha seleccionado ningún CT.")
         return
 
-    addresses, bridges, route = host_network()
     cfg = defaults.copy()
+    if "ndi" in chosen:
+        print(f"\n{NAMES['ndi']}")
+        cfg["NDI_CT_ID"] = ask("ID de CT", cfg["NDI_CT_ID"], valid=valid_ct_id)
+        resources = json.loads(subprocess.check_output(
+            ["pvesh", "get", "/cluster/resources", "--type", "vm", "--output-format", "json"]))
+        if not any(str(resource["vmid"]) == cfg["NDI_CT_ID"] for resource in resources):
+            cfg["NDI_LICENSE_SHA256"] = prepare_installer(destination.parent / "ndi-installer", cfg)
+
+    addresses, bridges, route = host_network()
     cfg["PROXMOX_IP"] = host_address(addresses, bridges, route, defaults["PROXMOX_IP"] if existing else None)
     host_bridge, _ = addresses[cfg["PROXMOX_IP"]]
     print(f"IP de Proxmox detectada: {cfg['PROXMOX_IP']} ({host_bridge}). Se usará para el acceso a su consola web.")
@@ -157,8 +170,8 @@ def questionnaire(destination, candidates, existing):
     for role in chosen:
         key = role.upper()
         print(f"\n{NAMES[role]}")
-        cfg[f"{key}_CT_ID"] = ask("ID de CT", cfg[f"{key}_CT_ID"],
-                                 valid=lambda value: bool(re.fullmatch(r"[1-9][0-9]{2,8}", value)))
+        if role != "ndi":  # Para NDI ya se ha comprobado el ID antes de mostrar la licencia.
+            cfg[f"{key}_CT_ID"] = ask("ID de CT", cfg[f"{key}_CT_ID"], valid=valid_ct_id)
         cfg[f"{key}_HOSTNAME"] = ask("Hostname", cfg[f"{key}_HOSTNAME"], valid=LABEL.fullmatch)
         previous = role_networks(defaults, role) if defaults[f"{key}_IP"] else []
         nics = ask_nics(role, previous, default_bridge, route, bridges)

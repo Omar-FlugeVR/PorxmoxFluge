@@ -20,6 +20,7 @@ TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 IP_VARS = ("PROXMOX_IP", "ADGUARD_IP", "CADDY_IP", "COMPANION_IP", "NDI_IP")
 CT_ROLES = ("adguard", "caddy", "companion", "ndi")
 PORT_VARS = ("COMPANION_PORT", "NDI_PORT")
+DEFAULT_NDI_INSTALLER_URL = "https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz"
 
 
 def ipv4(value, label):
@@ -97,8 +98,8 @@ def settings(environ=None):
         raise ConfigError("INSTALL_CTS debe enumerar CTs configurados y sin duplicados")
     cfg["INSTALL_CTS"] = " ".join(selection)
     cfg.update({key: env.get(key, default) for key, default in (
-        ("NDI_INSTALLER_URL", "https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz"),
-        ("NDI_INSTALLER_FILE", ""), ("NDI_INSTALLER_SHA256", ""))})
+        ("NDI_INSTALLER_URL", DEFAULT_NDI_INSTALLER_URL),
+        ("NDI_INSTALLER_FILE", ""), ("NDI_INSTALLER_SHA256", ""), ("NDI_LICENSE_SHA256", ""))})
     cfg["BASE_DOMAIN"] = cfg["BASE_DOMAIN"].lstrip(".").lower().rstrip(".")
     domain = cfg["BASE_DOMAIN"]
     if len(domain) > 190 or any(not LABEL.fullmatch(part) for part in domain.split(".")):
@@ -149,8 +150,10 @@ def settings(environ=None):
             raise ConfigError(f"{key}: usa un puerto entre 1024 y 65535")
     if not re.fullmatch(r"stable|[0-9]+\.[0-9]+\.[0-9]+", cfg["COMPANION_BUILD"]):
         raise ConfigError("COMPANION_BUILD debe ser stable o una versión estable x.y.z")
-    if cfg["NDI_INSTALLER_SHA256"] and not re.fullmatch(r"[a-fA-F0-9]{64}", cfg["NDI_INSTALLER_SHA256"]):
-        raise ConfigError("NDI_INSTALLER_SHA256 debe tener 64 dígitos hexadecimales")
+    for key in ("NDI_INSTALLER_SHA256", "NDI_LICENSE_SHA256"):
+        if cfg[key] and not re.fullmatch(r"[a-fA-F0-9]{64}", cfg[key]):
+            raise ConfigError(f"{key} debe tener 64 dígitos hexadecimales")
+        cfg[key] = cfg[key].lower()
     if not cfg["NDI_INSTALLER_FILE"]:
         validate_target(cfg["NDI_INSTALLER_URL"], "NDI_INSTALLER_URL")
         if not cfg["NDI_INSTALLER_URL"].startswith("https://"):

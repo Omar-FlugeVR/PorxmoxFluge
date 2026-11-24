@@ -150,3 +150,9 @@ Codex:
     ☑ Instalar AdGuard en el CT 110 de la VM. Comprobar desde Windows la respuesta HTTP y la resolución DNS de nombres públicos y locales.
     ☑ Corregir el valor de NDI_MOCK en el pool PHP-FPM, que Debian 12 interpretaba como vacío. Validar el pool y terminar la instalación del panel en el CT 111 existente. Comprobar desde Windows el panel por IP y nombre y la redirección de adguard.lan. Verificar el inicio de sesión en el panel real. Pasaron 29 pruebas HTTP con estado temporal y las pruebas Bash.
     ☑ Limitar umask 022 a la ejecución del instalador oficial de Companion para que el servicio pueda leer y ejecutar sus archivos. Reparar los permisos del CT 112 existente y comprobar el servicio nativo y la respuesta web en el puerto 8000 desde Windows.
+
+    Licencia NDI en Linux — 24/11/2026
+    ☑ Inspeccionar el autoextraíble oficial del SDK v6 sin ejecutarlo. Muestra la licencia y lee y/Y de la entrada estándar. Esta versión no ofrece un parámetro de aceptación desatendida. La revisión se hizo fuera de Proxmox.
+    ☑ Mostrar la licencia al elegir un CT de NDI nuevo, antes de configurar la red. Guardar en config.env la huella del texto aceptado, reutilizarla mientras coincida y enviar la respuesta al instalador en el CT con la misma copia revisada.
+    ☑ Comprobar aceptación, rechazo, ejecución desatendida, cambio de términos y verificación del paquete con pruebas locales. Pasaron las pruebas Bash, ShellCheck y la validación del texto del SDK oficial. Queda probar el aprovisionamiento en Proxmox desde la instantánea limpia.
+    ☑ Corregir en la suite del panel la comparación de la última observación NDI para medirla desde la consulta más reciente, incluso si el reloj cambia de segundo entre consultas.

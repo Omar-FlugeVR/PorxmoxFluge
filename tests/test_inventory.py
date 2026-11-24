@@ -223,6 +223,26 @@ class InventoryTests(unittest.TestCase):
                           ("puente", "IPv4 o IPv4/CIDR", "prefijo CIDR", "VLAN", "puerta de enlace")],
                          [1, 1, 2, 2, 2])
 
+    def test_questionnaire_checks_new_ndi_license_before_network_and_saves_its_hash(self):
+        wizard = load_module("questionnaire", ROOT / "scripts/questionnaire.py")
+        digest = "a" * 64
+        for existing, resources in ((False, b"[]"), (True, b'[{"vmid":113}]')):
+            with self.subTest(existing=existing):
+                destination = Path(self.tmp.name) / f"ndi-{existing}.env"
+                answers = iter(["s", "", "", "", "", "", "", "", "192.168.1.16/24", "-", ""])
+                with patch.object(wizard, "prepare_installer", return_value=digest) as prepare, \
+                        patch.object(wizard.subprocess, "check_output", return_value=resources), \
+                        patch("builtins.input", side_effect=lambda _: next(answers)), patch("builtins.print"):
+                    def host_network():
+                        self.assertEqual(prepare.call_count, 0 if existing else 1)
+                        return {"192.168.1.10": ("vmbr0", 24)}, ["vmbr0"], {"dev": "vmbr0", "gateway": "192.168.1.1"}
+                    with patch.object(wizard, "host_network", side_effect=host_network):
+                        wizard.questionnaire(destination, ["ndi"], existing=False)
+                persisted = dict(shlex.split(line)[0].split("=", 1)
+                                 for line in destination.read_text(encoding="utf-8").splitlines() if not line.startswith("#"))
+                self.assertEqual(persisted["NDI_LICENSE_SHA256"], "" if existing else digest)
+                self.assertEqual(persisted["INSTALL_CTS"], "ndi")
+
     def test_nics_reject_duplicate_addresses_extra_gateways_and_invalid_vlans(self):
         primary = {"bridge": "vmbr0", "ip": "192.168.1.15/24", "vlan": "20", "gateway": "192.168.1.1"}
         secondary = {"bridge": "vmbr2", "ip": "10.20.0.15/24", "vlan": "", "gateway": ""}

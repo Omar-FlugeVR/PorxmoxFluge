@@ -53,10 +53,6 @@ grep -q 'create 113 .*--unprivileged 1 --cores 1 --memory 512.*--rootfs local-lv
     create_ct companion
 )
 grep -q -- '--net0 name=eth0,bridge=vmbr0,ip=192.168.1.15/24,ip6=manual,gw=192.168.1.1,tag=20 --net1 name=eth1,bridge=vmbr1,ip=10.9.0.15/24,ip6=manual,tag=30' "$calls_file"
-if (ndi_preflight </dev/null); then
-    printf 'Se ha aceptado instalar NDI sin terminal para su licencia.\n' >&2
-    exit 1
-fi
 
 # Reutilizar una plantilla local no debe actualizar el catálogo ni descargarla.
 check_storage() { :; }
@@ -212,6 +208,17 @@ confirm() {
 }
 run_community_post_install() { event post-install; }
 python3() {
+    if [[ "$1" == */ndi_installer.py ]]; then
+        event license
+        case "$FLUGE_INSTALL_SCENARIO" in
+            license_refused) [[ -z "$NDI_LICENSE_SHA256" ]] || die 'Se tomó una aceptación del entorno.'; return 1 ;;
+            license_saved) [[ -z "$NDI_LICENSE_SHA256" ]] || return 99 ;;
+            license_reuse|license_changed) [[ "$NDI_LICENSE_SHA256" == "$(printf '%064d' 1)" ]] || return 99 ;;
+        esac
+        if [[ "$FLUGE_INSTALL_SCENARIO" == license_changed ]]; then printf '%064d\n' 2; return; fi
+        printf '%064d\n' 1
+        return
+    fi
     [[ "$1" == */questionnaire.py ]] || return 99
     event questionnaire
     printf "INSTALL_CTS='adguard companion'\n" > "$2"
@@ -221,7 +228,7 @@ pct() {
     printf 'status: running\n'
 }
 ct_state() {
-    if [[ "$FLUGE_INSTALL_SCENARIO" =~ ^(fresh|render_fail|questionnaire|cancel)$ ]] \
+    if [[ "$FLUGE_INSTALL_SCENARIO" =~ ^(fresh|render_fail|questionnaire|cancel|license_.*)$ ]] \
         || [[ "$FLUGE_INSTALL_SCENARIO" == native && "$1" == "$COMPANION_CT_ID" ]]; then
         printf 'new\n'
     else printf 'existing\n'; fi
@@ -233,7 +240,10 @@ verify_ct_config() {
 verify_ct() { event "verify $1"; }
 start_ct() { event "start $1"; }
 assert_services() { event "services $1"; }
-preflight_new_ct() { event "preflight $1"; }
+preflight_new_ct() {
+    event "preflight $1"
+    if [[ "$FLUGE_INSTALL_SCENARIO" == license_* && "$1" == ndi ]]; then ndi_preflight; fi
+}
 check_storage() { :; }
 ensure_template() {
     if [[ "$FLUGE_INSTALL_SCENARIO" == questionnaire ]]; then test -f "$REPO_DIR/config.env" || die 'Falta guardar config.env.'; fi
@@ -287,6 +297,25 @@ assert_no_log '^(questionnaire|post-install)$'
 FLUGE_INSTALL_SCENARIO=sync bash "$inventory_dir/sync.sh" --yes
 [[ "$(sed -n 's/^apply //p' "$calls_file")" == $'companion\nadguard' ]]
 assert_no_log '^create '
+
+# La precomprobación NDI precede a cualquier creación y persiste la licencia una vez.
+if NDI_LICENSE_SHA256="$(printf '%064d' 1)" installer_case license_refused --ct ndi; then
+    die 'La instalación continuó sin una licencia aceptada.'
+fi
+[[ "$(cat "$calls_file")" == $'preflight ndi\nlicense' ]]
+installer_case license_saved --ct ndi
+grep -qx "NDI_LICENSE_SHA256=$(printf '%064d' 1)" "$inventory_dir/checkout/config.env"
+if grep -q '^NDI_LICENSE_SHA256=' "$inventory_dir/checkout/config.env.bak"; then
+    die 'La copia de configuración anterior ya contiene la nueva aceptación.'
+fi
+awk '/^license$/ {accepted=1} /^create/ {if (!accepted) exit 1; created=1} END {if (!created) exit 1}' "$calls_file"
+installer_case license_reuse --ct ndi
+[[ "$(grep -c '^NDI_LICENSE_SHA256=' "$inventory_dir/checkout/config.env")" == 1 ]]
+installer_case license_changed --ct ndi
+grep -qx "NDI_LICENSE_SHA256=$(printf '%064d' 2)" "$inventory_dir/checkout/config.env"
+grep -qx "NDI_LICENSE_SHA256=$(printf '%064d' 1)" "$inventory_dir/checkout/config.env.bak"
+[[ "$(grep -c '^NDI_LICENSE_SHA256=' "$inventory_dir/checkout/config.env")" == 1 ]]
+
 # Comprobar los validadores reales: un error de clúster o de identidad no debe
 # convertirse en un ID libre ni permitir ejecutar un comando dentro de otro CT.
 for scenario in occupied remote cluster_failure; do

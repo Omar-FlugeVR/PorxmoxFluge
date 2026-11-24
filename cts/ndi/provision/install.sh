@@ -1,54 +1,28 @@
 #!/usr/bin/env bash
-# El host envía este archivo al CT y lo ejecuta manteniendo stdin interactivo.
+# El host envía al CT el instalador cuyo acuerdo ya se ha revisado.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 stage="$1"
 timezone="$2"
-source="$3"
-url="$4"
-expected_sha256="$5"
+expected_sha256="$3"
 [[ "$stage" == /root/studio-ndi-install.* && -d "$stage" ]] || exit 1
 trap 'rm -rf -- "$stage"' EXIT
 [[ ! -e /opt/ndi-discovery ]] || { printf 'NDI ya existe; no se reinstala.\n' >&2; exit 1; }
+sha256sum --check --status <<< "$expected_sha256  $stage/vendor-install.sh" \
+    || { printf 'La copia del instalador NDI en el CT no coincide con la revisada en Proxmox.\n' >&2; exit 1; }
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl python3 tzdata \
+apt-get install -y --no-install-recommends python3 tzdata \
     binutils libstdc++6 libgcc-s1 libavahi-client3
 ln -snf "/usr/share/zoneinfo/$timezone" /etc/localtime
 printf '%s\n' "$timezone" > /etc/timezone
-if [[ "$source" == download ]]; then
-    curl --fail --silent --show-error --location --retry 3 --user-agent 'Mozilla/5.0' \
-        "$url" --output "$stage/installer.download"
-fi
-if [[ -n "$expected_sha256" ]]; then
-    printf '%s  %s\n' "$expected_sha256" "$stage/installer.download" | sha256sum --check --status
-fi
-
-# El tar oficial contiene un único autoextraíble .sh. No extraer rutas arbitrarias.
-python3 - "$stage" <<'PY'
-from pathlib import Path
-import shutil
-import sys
-import tarfile
-stage = Path(sys.argv[1])
-source = stage / 'installer.download'
-target = stage / 'vendor-install.sh'
-with source.open('rb') as downloaded:
-    is_script = downloaded.read(2) == b'#!'
-if is_script:
-    shutil.copyfile(source, target)
-else:
-    with tarfile.open(source, 'r:gz') as archive:
-        candidates = [entry for entry in archive.getmembers() if entry.isfile() and entry.name.endswith('.sh')]
-        if len(candidates) != 1:
-            sys.exit('El archivo NDI debe contener un único instalador oficial .sh.')
-        with archive.extractfile(candidates[0]) as src, target.open('wb') as out:
-            shutil.copyfileobj(src, out)
-PY
 mkdir "$stage/payload"
 cd "$stage/payload"
-# El fabricante muestra el EULA y pide y/Y. No se envía una respuesta automática.
-# cat muestra el acuerdo completo sin depender de un paginador o un TTY interno.
-PAGER='cat' bash "$stage/vendor-install.sh"
+# El host ya ha comprobado la aceptación de este texto. Enviar una sola respuesta.
+if ! printf 'y\n' | PAGER='cat' bash "$stage/vendor-install.sh" > "$stage/vendor-install.log" 2>&1; then
+    printf 'El instalador oficial de NDI ha fallado.\n' >&2
+    tail -n 15 "$stage/vendor-install.log" >&2
+    exit 1
+fi
 
 mapfile -d '' binaries < <(find "$stage/payload" -type f -path '*/bin/x86_64-linux-gnu/ndi-discovery-server' -print0)
 [[ "${#binaries[@]}" == 1 ]] || {

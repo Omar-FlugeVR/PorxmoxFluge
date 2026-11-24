@@ -12,9 +12,11 @@ Desde una terminal interactiva del **host Proxmox**:
 ./cts/ndi/sync.sh --render-only
 ```
 
-Configura `NDI_CT_ID`, `NDI_IP`, `NDI_HOSTNAME` y `NDI_PORT` en el `config.env` de la raíz. `NDI_INSTALLER_URL` apunta al SDK Linux oficial de NDI; el instalador obtiene el autoextraíble `.sh` y lo ejecuta **dentro del CT**, manteniendo la entrada de la terminal.
+Configura `NDI_CT_ID`, `NDI_IP`, `NDI_HOSTNAME` y `NDI_PORT` en el `config.env` de la raíz. `NDI_INSTALLER_URL` apunta al SDK Linux oficial de NDI. El host Proxmox obtiene el autoextraíble `.sh` y envía al CT la copia que se ha revisado.
 
-El fabricante presenta su acuerdo de licencia y pide aceptación antes de extraer los binarios. **Debes leerlo y aceptarlo tú**; `--yes` no contesta a esa pregunta. No se acepta el acuerdo al clonar este repositorio. Antes de crear CTs se verifica que exista una terminal para este paso. Si rechazas la licencia, el aprovisionamiento se detiene y conserva el CT para diagnóstico.
+Al seleccionar un CT de NDI nuevo, el cuestionario muestra el acuerdo completo al principio. Si lo aceptas, se guarda la huella SHA-256 del texto en `NDI_LICENSE_SHA256` dentro del `config.env` privado al confirmar el plan. Después, el instalador responde al fabricante automáticamente dentro del CT. Si rechazas el acuerdo, la instalación se cancela antes de crear CTs.
+
+Con `--yes` puedes reinstalar sin terminal cuando el texto del paquete coincide con la huella guardada. Si la licencia es nueva o ha cambiado, ejecuta el instalador desde una terminal interactiva para revisarla. `--from-config` también permite guardar la aceptación en un `config.env` existente.
 
 Si la descarga directa no está disponible, obtén el paquete oficial desde la [página de NDI](https://ndi.video/form-discovery-service/) o el [SDK](https://ndi.video/for-developers/ndi-sdk/), cópialo al host y establece, por ejemplo:
 
