@@ -126,6 +126,8 @@ Codex:
     ☑ Reutilizar la selección guardada con install.sh --yes y sync.sh. Mantener --from-config para archivos preparados a mano y la aceptación manual de la licencia NDI.
     ☑ Permitir instalaciones parciales con artefactos solo para los CTs elegidos y sin accesos iniciales a CTs sin IP configurada.
     ☑ Comprobar cuestionario, cancelación, NIC con VLAN, selección parcial e instalación y sincronización con dobles de Proxmox. Pasaron Bash, ShellCheck y 56 pruebas Python. Quedan la prueba en Proxmox real y los valores de red de la instalación.
+    ☑ Limpiar la terminal y mostrar la cabecera ASCII de FLUGE al iniciar el instalador y al volver del post-install. Detectar y mostrar la IP del host para el enlace a Proxmox y documentar los valores de almacenamiento y DNS del cuestionario.
+    ☑ Aceptar una IPv4 sin prefijo y pedir el CIDR por separado. Validar IP, prefijo, VLAN y puerta de enlace al introducirlos. El caso de la captura pasó con una red simulada, junto con las 13 pruebas de inventario, las pruebas Bash del instalador y ShellCheck. Pendiente probarlo en el host.
 
     Preparación para GitHub — 24/11/2026
     ☑ Revisar los 99 archivos del primer commit, incluidos los scripts nuevos y sus permisos. La copia revisada contiene los logos de Fluge y excluye configuración privada, credenciales de instalación, artefactos locales y binarios NDI.

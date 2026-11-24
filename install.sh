@@ -5,6 +5,23 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/scripts/common.sh"
 init_runtime
 
+show_installer_header() {
+    if [[ -t 1 ]]; then
+        if [[ "${TERM:-dumb}" != dumb ]]; then printf '\033[2J\033[H'; fi
+        cat <<'BANNER'
+ ______ _      _    _  _____ ______
+|  ____| |    | |  | |/ ____|  ____|
+| |__  | |    | |  | | |  __| |__
+|  __| | |    | |  | | | |_ |  __|
+| |    | |____| |__| | |__| | |____
+|_|    |______|\____/ \_____|______|
+
+Instalador de servicios para Proxmox VE
+
+BANNER
+    fi
+}
+
 usage() {
     cat <<'HELP'
 Uso: ./install.sh [--ct all|adguard|caddy|companion|ndi] [--from-config | --yes] [--update-existing] [--post-install]
@@ -39,6 +56,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 select_cts "$TARGET_CT"
 
+show_installer_header
 require_proxmox
 if [[ "$ASSUME_YES" == 0 || "$POST_INSTALL" == 1 ]]; then
     info 'Perfil del post-install: desactivar los repositorios Enterprise de PVE y Ceph, habilitar pve-no-subscription, quitar el aviso de suscripción y actualizar.'
@@ -48,6 +66,7 @@ if [[ "$ASSUME_YES" == 0 || "$POST_INSTALL" == 1 ]]; then
     ASSUME_YES=0
     if confirm '¿Ejecutar el post-install comunitario de Proxmox VE?' no; then
         run_community_post_install
+        show_installer_header
     fi
     ASSUME_YES="$saved_yes"
 fi

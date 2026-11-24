@@ -25,8 +25,13 @@ def ask(label, default="", allow_empty=False, valid=lambda _: True):
         if allow_empty and value == "-":
             return ""
         value = value or default
-        if (value or allow_empty) and valid(value):
-            return value
+        if value or allow_empty:
+            try:
+                if valid(value):
+                    return value
+            except ConfigError as exc:
+                print(exc)
+                continue
         print("Valor inválido. Prueba de nuevo.")
 
 
@@ -57,39 +62,58 @@ def host_network():
     if not addresses or not bridges:
         raise ConfigError("Proxmox necesita una IPv4 y al menos un puente Linux activo")
     routes = json.loads(subprocess.check_output(["ip", "-j", "-4", "route", "show", "default"]))
-    route = next((route for route in routes if route.get("gateway")), {})
+    route = min(routes, key=lambda item: item.get("metric", 0), default={})
     return addresses, bridges, route
 
 
-def ask_nics(role, previous, default_bridge, host_gateway, bridges):
+def host_address(addresses, bridges, route, saved):
+    for candidate in (saved, route.get("prefsrc")):
+        if candidate in addresses:
+            return candidate
+    for address, (device, _) in addresses.items():
+        if device == route.get("dev"):
+            return address
+    return next((address for address, (device, _) in addresses.items() if device in bridges), next(iter(addresses)))
+
+
+def ask_address(label, nic, default):
+    def validate(value):
+        if "/" in value:
+            return nic_settings({**nic, "ip": value}, label)
+        return ipv4(value, label)
+
+    address = ask(f"{label} · IPv4 o IPv4/CIDR (ej. 192.168.1.20/24)", default, valid=validate)
+    if "/" in address:
+        return address
+    prefix = ask(f"{label} · prefijo CIDR de {address} (ej. 24 para 255.255.255.0)",
+                 valid=lambda value: nic_settings({**nic, "ip": f"{address}/{value}"}, label))
+    return f"{address}/{prefix}"
+
+
+def ask_nics(role, previous, default_bridge, route, bridges):
     count = int(ask("Número de NIC", str(len(previous) or 1),
                     valid=lambda value: bool(re.fullmatch(r"(?:[1-9]|[12][0-9]|3[0-2])", value))))
     nics = []
     for index in range(count):
         old = previous[index] if index < len(previous) else {}
         label = f"{role} eth{index}"
-        while True:
-            bridge = ask(f"{label} · puente ({', '.join(bridges)})",
-                         old.get("bridge", default_bridge), valid=lambda value: value in bridges)
-            address = ask(f"{label} · IPv4/CIDR", old.get("ip", ""))
-            vlan = ask(f"{label} · VLAN (- para ninguna)", old.get("vlan", ""), allow_empty=True)
-            gateway = ""
-            if not any(nic["gateway"] for nic in nics):
-                suggested = old.get("gateway", "")
-                if not old and index == 0 and host_gateway:
-                    try:
-                        if ipaddress.IPv4Address(host_gateway) in ipaddress.IPv4Network(address, strict=False):
-                            suggested = host_gateway
-                    except ValueError:
-                        pass
-                gateway = ask(f"{label} · puerta de enlace IPv4 (- para ninguna)", suggested, allow_empty=True)
+        bridge = ask(f"{label} · puente ({', '.join(bridges)})",
+                     old.get("bridge", default_bridge), valid=lambda value: value in bridges)
+        nic = {"bridge": bridge, "ip": "", "vlan": "", "gateway": ""}
+        nic["ip"] = ask_address(label, nic, old.get("ip", ""))
+        nic["vlan"] = ask(f"{label} · VLAN (- para ninguna)", old.get("vlan", ""), allow_empty=True,
+                         valid=lambda value: nic_settings({**nic, "vlan": value}, label))
+        if not any(previous_nic["gateway"] for previous_nic in nics):
+            suggested = old.get("gateway", "")
+            if not old and index == 0 and bridge == route.get("dev") and not nic["vlan"]:
+                suggested = route.get("gateway", "")
             try:
-                nic = nic_settings(dict(bridge=bridge, ip=address, gateway=gateway, vlan=vlan), label)
-            except ConfigError as exc:
-                print(exc)
-                continue
-            nics.append(nic)
-            break
+                nic_settings({**nic, "gateway": suggested}, label)
+            except ConfigError:
+                suggested = ""
+            nic["gateway"] = ask(f"{label} · puerta de enlace IPv4 (- para ninguna)", suggested, allow_empty=True,
+                                valid=lambda value: nic_settings({**nic, "gateway": value}, label))
+        nics.append(nic)
     return nics
 
 
@@ -113,23 +137,22 @@ def questionnaire(destination, candidates, existing):
         return
 
     addresses, bridges, route = host_network()
-    suggested = next((ip for ip, (device, _) in addresses.items() if device == route.get("dev")), next(iter(addresses)))
     cfg = defaults.copy()
-    cfg["PROXMOX_IP"] = ask(f"IP de Proxmox ({', '.join(addresses)})",
-                           defaults["PROXMOX_IP"] if existing and defaults["PROXMOX_IP"] in addresses else suggested,
-                           valid=lambda value: value in addresses)
+    cfg["PROXMOX_IP"] = host_address(addresses, bridges, route, defaults["PROXMOX_IP"] if existing else None)
     host_bridge, _ = addresses[cfg["PROXMOX_IP"]]
+    print(f"IP de Proxmox detectada: {cfg['PROXMOX_IP']} ({host_bridge}). Se usará para el acceso a su consola web.")
     default_bridge = host_bridge if host_bridge in bridges else bridges[0]
-    cfg["TEMPLATE_STORAGE"] = ask("Storage de plantillas", cfg["TEMPLATE_STORAGE"], valid=TOKEN.fullmatch)
-    cfg["DISK_STORAGE"] = ask("Storage de discos de CT", cfg["DISK_STORAGE"], valid=TOKEN.fullmatch)
-    cfg["BOOTSTRAP_DNS"] = ask("DNS IPv4 para instalar los CTs", cfg["BOOTSTRAP_DNS"], valid=valid_dns)
+    print("Pulsa Intro para aceptar el valor entre corchetes.")
+    cfg["TEMPLATE_STORAGE"] = ask("Almacenamiento para plantillas de CT", cfg["TEMPLATE_STORAGE"], valid=TOKEN.fullmatch)
+    cfg["DISK_STORAGE"] = ask("Almacenamiento para discos de CT", cfg["DISK_STORAGE"], valid=TOKEN.fullmatch)
+    cfg["BOOTSTRAP_DNS"] = ask("DNS IPv4 que usan los CT para descargar paquetes", cfg["BOOTSTRAP_DNS"], valid=valid_dns)
     if "adguard" in chosen:
-        cfg["UPSTREAM_DNS"] = ask("DNS upstream de AdGuard (separados por espacios)", cfg["UPSTREAM_DNS"],
+        cfg["UPSTREAM_DNS"] = ask("DNS a los que AdGuard reenvía consultas (separados por espacios)", cfg["UPSTREAM_DNS"],
                                   valid=lambda value: valid_dns(value, multiple=True))
     if "adguard" in chosen or "caddy" in chosen:
-        cfg["BASE_DOMAIN"] = ask("Dominio local", cfg["BASE_DOMAIN"])
+        cfg["BASE_DOMAIN"] = ask("Sufijo de los nombres DNS locales", cfg["BASE_DOMAIN"])
     if "caddy" in chosen:
-        cfg["LANDING_SUBDOMAIN"] = ask("Nombre DNS del panel", cfg["LANDING_SUBDOMAIN"], valid=LABEL.fullmatch)
+        cfg["LANDING_SUBDOMAIN"] = ask(f"Nombre DNS del panel en {cfg['BASE_DOMAIN']}", cfg["LANDING_SUBDOMAIN"], valid=LABEL.fullmatch)
 
     for role in chosen:
         key = role.upper()
@@ -138,7 +161,7 @@ def questionnaire(destination, candidates, existing):
                                  valid=lambda value: bool(re.fullmatch(r"[1-9][0-9]{2,8}", value)))
         cfg[f"{key}_HOSTNAME"] = ask("Hostname", cfg[f"{key}_HOSTNAME"], valid=LABEL.fullmatch)
         previous = role_networks(defaults, role) if defaults[f"{key}_IP"] else []
-        nics = ask_nics(role, previous, default_bridge, route.get("gateway"), bridges)
+        nics = ask_nics(role, previous, default_bridge, route, bridges)
         cfg[f"{key}_IP"] = nics[0]["ip"].split("/")[0]
         cfg[f"{key}_NICS"] = json.dumps(nics, separators=(",", ":"))
 

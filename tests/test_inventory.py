@@ -183,17 +183,19 @@ class InventoryTests(unittest.TestCase):
         destination = Path(self.tmp.name) / "config.env"
         answers = iter([
             "s", "n", "s", "n",  # Selección.
-            "", "", "", "", "", "",  # Host, storages, DNS y dominio.
+            "", "", "", "", "",  # Almacenamientos, DNS y dominio.
             "", "", "1", "", "10.20.0.11/24", "20", "10.20.0.1",
             "", "", "2", "", "10.20.0.15/24", "20", "10.20.0.1", "vmbr1", "172.20.0.15/24", "30",
         ])
-        with patch.object(wizard, "host_network", return_value=({"192.168.1.10": ("vmbr0", 24)},
-                ["vmbr0", "vmbr1"], {"dev": "vmbr0", "gateway": "192.168.1.1"})), \
+        with patch.object(wizard, "host_network", return_value=({
+                "192.168.1.99": ("vmbr0", 24), "192.168.1.10": ("vmbr0", 24)},
+                ["vmbr0", "vmbr1"], {"dev": "vmbr0", "gateway": "192.168.1.1", "prefsrc": "192.168.1.10"})), \
                 patch("builtins.input", side_effect=lambda _: next(answers)), patch("builtins.print"):
             wizard.questionnaire(destination, CT_ROLES, existing=False)
         persisted = dict(shlex.split(line)[0].split("=", 1)
                          for line in destination.read_text(encoding="utf-8").splitlines() if not line.startswith("#"))
         cfg = settings(persisted)
+        self.assertEqual(cfg["PROXMOX_IP"], "192.168.1.10")
         self.assertEqual(cfg["INSTALL_CTS"], "adguard companion")
         self.assertEqual(cfg["CADDY_IP"], "")
         self.assertEqual(cfg["NDI_IP"], "")
@@ -209,6 +211,17 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual({path.name for path in output.iterdir()}, {"adguard", "companion"})
         self.assertEqual(json.loads((output / "adguard/rewrites.json").read_text(encoding="utf-8")), {"rewrites": []})
+
+    def test_questionnaire_asks_for_missing_prefix_without_repeating_accepted_fields(self):
+        wizard = load_module("questionnaire", ROOT / "scripts/questionnaire.py")
+        answers = ["", "", "172.19.200.1", "31", "17", "4095", "-", "172.19.1.1", "172.19.160.1"]
+        with patch("builtins.input", side_effect=answers) as prompt, patch("builtins.print"):
+            nics = wizard.ask_nics("adguard", [], "vmbr0", {"dev": "vmbr0", "gateway": "172.19.160.1"}, ["vmbr0"])
+        self.assertEqual(nics, [{"bridge": "vmbr0", "ip": "172.19.200.1/17", "vlan": "", "gateway": "172.19.160.1"}])
+        labels = [call.args[0] for call in prompt.call_args_list]
+        self.assertEqual([sum(field in label for label in labels) for field in
+                          ("puente", "IPv4 o IPv4/CIDR", "prefijo CIDR", "VLAN", "puerta de enlace")],
+                         [1, 1, 2, 2, 2])
 
     def test_nics_reject_duplicate_addresses_extra_gateways_and_invalid_vlans(self):
         primary = {"bridge": "vmbr0", "ip": "192.168.1.15/24", "vlan": "20", "gateway": "192.168.1.1"}

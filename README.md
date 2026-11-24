@@ -42,7 +42,18 @@ El cuestionario ofrece primero el post-install comunitario. Tras confirmar, apli
 
 Antes de actualizar, se comentan las entradas Ceph Enterprise activas en los archivos `.list`, con copia previa en `*.fluge-before-post-install`. Las demás entradas de esos archivos se conservan. En Proxmox 9 el script comunitario también desactiva Ceph Enterprise en el formato `.sources`. La actualización puede reiniciar servicios y un kernel nuevo se usará al reiniciar el nodo manualmente.
 
-Después responde sí o no para AdGuard, Caddy, Companion y NDI. El asistente detecta las IPv4 y los puentes Linux del host. Pide el almacenamiento, el DNS para instalar paquetes y los ajustes de los CTs elegidos. Para cada NIC indica el puente, la IPv4/CIDR, la VLAN opcional y la puerta de enlace. Usa `-` para vaciar un valor opcional. La primera NIC lleva la IP del servicio y puedes configurar una puerta de enlace por CT. Prepara en Proxmox los puentes que vayas a usar y las VLAN permitidas.
+Después responde sí o no para AdGuard, Caddy, Companion y NDI. El asistente detecta y muestra la IP de Proxmox que usará para el enlace a la consola web. Reutiliza la IP guardada si sigue asignada al host. Pulsa Intro para aceptar los valores entre corchetes y cambia los nombres de almacenamiento si el host usa otros.
+
+| Pregunta | Valor de ejemplo y uso |
+| --- | --- |
+| Almacenamiento para plantillas de CT | `local` guarda la plantilla Debian 12 con la que se crean los CT. |
+| Almacenamiento para discos de CT | `local-lvm` guarda los discos raíz de los CT. |
+| DNS IPv4 para descargar paquetes | `1.1.1.1` resuelve nombres desde los CT durante la instalación. |
+| DNS a los que AdGuard reenvía consultas | `1.1.1.1 9.9.9.9` son los resolutores que AdGuard consulta para los nombres externos. |
+| Sufijo de los nombres DNS locales | `lan` se añade a los nombres de los servicios. |
+| Nombre DNS del panel | `inicio` da lugar a `http://inicio.lan` cuando los clientes usan el DNS local. |
+
+Para cada NIC indica el puente, la IPv4, la VLAN opcional y la puerta de enlace. Puedes escribir la IPv4 con su prefijo, como `192.168.1.20/24`, o escribir solo la dirección y responder después por el prefijo. Usa el de la red conectada a ese puente o VLAN. Si un valor de red es inválido, el asistente vuelve a pedir ese campo. Usa `-` para vaciar un valor opcional. La primera NIC lleva la IP del servicio y puedes configurar una puerta de enlace por CT. Prepara en Proxmox los puentes que vayas a usar y las VLAN permitidas.
 
 El resumen muestra la red y las operaciones previstas. Al confirmar se guarda `config.env` con permisos `600` y se instalan los CTs elegidos. Si ya existía un archivo distinto, su copia queda en `config.env.bak`. Puedes conservar la configuración de un CT y excluirlo de la selección de esta ejecución.
 
