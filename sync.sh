@@ -34,7 +34,7 @@ if [[ "$MODE" == render ]]; then
     ok "Configuración de ${SELECTED_CTS[*]} generada en $REPO_DIR/generated/."
     exit 0
 fi
-require_proxmox
+require_proxmox 0
 verify_host_ip
 for role in "${SELECTED_CTS[@]}"; do
     ct_settings "$role"

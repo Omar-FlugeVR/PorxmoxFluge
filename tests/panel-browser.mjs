@@ -29,7 +29,8 @@ const checkRefreshTimeout = async (id, endpoint, busyLabel, messageId) => {
     window.refreshRequests=0;
     AbortSignal.timeout=ms=>originalTimeout.call(AbortSignal,Math.min(ms,500));
     window.fetch=(input,options)=>{
-      if(!String(input).includes(${JSON.stringify(endpoint)}))return originalFetch(input,options);
+      const target=${JSON.stringify(endpoint)};
+      if(!String(input).includes(target)&&!options?.body?.includes(target))return originalFetch(input,options);
       window.refreshRequests++;
       return new Promise((_,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true}));
     };
@@ -89,26 +90,55 @@ try {
   if (stateDirectory) {
     const installedRelease = {version:'0.0.1',type:'test',update_required:false};
     const latestRelease = {version:'0.0.2',type:'test',update_required:true};
-    const panelReport = {checkedAt:new Date().toISOString(),services:{
+    const panelReport = {checkedAt:new Date(Date.now()-60000).toISOString(),services:{
       panel:{installed:'a'.repeat(40),latest:null,installedRelease,latestRelease:installedRelease,status:'current',canUpdate:false},
       companion:{installed:'5.1.3',latest:'5.1.3',status:'current'},
       ndi:{installed:'SDK 6.3.1',status:'manual'},
     }};
     const updatesFile = path.join(stateDirectory, 'updates.json');
+    const updateRequestFile = path.join(stateDirectory, 'update-request.json');
+    assert(!fs.existsSync(updateRequestFile), 'Opening Updates must only read the cached report');
     fs.writeFileSync(updatesFile, JSON.stringify(panelReport));
-    await click('#reloadUpdates');
-    await waitFor(`document.getElementById('updatesRows').textContent.includes('0.0.1 (test)')`);
+    await waitFor(`!document.getElementById('checkUpdates').disabled`);
+    await evaluate(`(()=>{
+      const fetch = window.fetch;
+      window.fetch = async (input,options) => {
+        if (options?.body?.includes('check_updates')) await new Promise(resolve=>setTimeout(resolve,400));
+        return fetch(input,options);
+      };
+    })()`);
+    await click('#checkUpdates');
+    assert(await evaluate(`document.getElementById('checkUpdates').disabled&&document.getElementById('checkUpdates').textContent==='Comprobando…'&&!document.getElementById('updateProgress').hidden`), 'Searching must show progress and disable the button');
+    await waitFor(`!document.getElementById('checkUpdates').disabled&&document.getElementById('updatesRows').textContent.includes('0.0.1 (test)')&&document.getElementById('updateJobStatus').textContent.includes('Búsqueda completada')`);
+    assert(JSON.parse(fs.readFileSync(updateRequestFile)).role==='check'&&JSON.parse(fs.readFileSync(updatesFile)).checkedAt!==panelReport.checkedAt, 'Manual search must queue a check and refresh the report');
     assert(await evaluate(`document.getElementById('panelUpdateNotice').hidden&&document.querySelector('[data-update-role=panel]').disabled`), 'An installer-only commit must not offer a panel update');
-    Object.assign(panelReport.services.panel,{latest:'b'.repeat(40),latestRelease,status:'update',canUpdate:true});
+    Object.assign(panelReport.services.panel,{latest:'b'.repeat(40),tag:'panel-v0.0.2',latestRelease:{...latestRelease,update_required:false},status:'update',canUpdate:true});
     fs.writeFileSync(updatesFile, JSON.stringify(panelReport));
-    await click('#reloadUpdates');
+    await click('#checkUpdates');
+    await waitFor(`document.getElementById('panelUpdateNotice').hidden&&!document.querySelector('[data-update-role=panel]').disabled&&!document.getElementById('checkUpdates').disabled`);
+    const futureRelease = {...latestRelease,version:'0.0.3',minimum_version:'0.0.2'};
+    Object.assign(panelReport.services.panel,{latest:'c'.repeat(40),tag:'panel-v0.0.3',latestRelease:{...futureRelease,update_required:false},
+      status:'incompatible',canUpdate:false,compatibility:'La versión intermedia 0.0.2 debe estar publicada.'});
+    fs.writeFileSync(updatesFile, JSON.stringify(panelReport));
+    await click('#checkUpdates');
+    await waitFor(`document.getElementById('panelUpdateNotice').hidden&&document.getElementById('updatesRows').textContent.includes('Ruta de actualización no disponible')&&document.querySelector('[data-update-role=panel]').disabled&&!document.getElementById('checkUpdates').disabled`);
+    panelReport.services.panel.latestRelease = futureRelease;
+    fs.writeFileSync(updatesFile, JSON.stringify(panelReport));
+    await click('#checkUpdates');
+    await waitFor(`!document.getElementById('panelUpdateNotice').hidden&&document.getElementById('panelUpdateNotice').textContent.includes('debe estar publicada')&&document.querySelector('[data-update-role=panel]').disabled&&!document.getElementById('checkUpdates').disabled`);
+    delete panelReport.services.panel.compatibility;
+    Object.assign(panelReport.services.panel,{status:'update',canUpdate:true,
+      upgradePath:[{version:'0.0.2',commit:'b'.repeat(40)},{version:'0.0.3',commit:'c'.repeat(40)}]});
+    fs.writeFileSync(updatesFile, JSON.stringify(panelReport));
+    await click('#checkUpdates');
     await waitFor(`document.getElementById('updatesRows').textContent.includes('Actualización requerida')`);
-    assert(await evaluate(`document.getElementById('updatesRows').textContent.includes('0.0.2 (test)')&&!document.getElementById('updatesRows').textContent.includes('aaaaaaaa')&&!document.querySelector('#updatesRows a')`), 'Update report should display public version labels without change links');
+    assert(await evaluate(`document.getElementById('updatesRows').textContent.includes('0.0.3 (test)')&&!document.getElementById('updatesRows').textContent.includes('aaaaaaaa')&&!document.querySelector('#updatesRows a')`), 'Update report should display public version labels without change links');
     await click('[data-view=services]');
     assert(await evaluate(`!document.getElementById('panelUpdateNotice').hidden`), 'The required update must be visible outside the updates view');
     await click('[data-view=updates]');
     await click('[data-update-role=panel]');
     await waitFor(`document.getElementById('updateDialog').open`);
+    assert(await evaluate(`document.getElementById('updateDialogText').textContent.includes('0.0.2 → 0.0.3')`), 'The confirmation must show the full compatibility path');
     await click('#updateCancel');
     assert(await evaluate(`!document.getElementById('updateDialog').open&&!document.querySelector('[data-update-role=panel]').disabled`), 'Cancelling must leave the selected update available');
     await evaluate(`(()=>{const fetch=window.fetch;window.fetch=async (input,options)=>{if(options?.body?.includes('update_service'))await new Promise(r=>setTimeout(r,400));return fetch(input,options);};})()`);
@@ -116,7 +146,7 @@ try {
     assert(await evaluate(`!document.getElementById('updateProgress').hidden&&!document.getElementById('updateProgress').hasAttribute('value')`), 'The progress bar must appear as soon as the update is confirmed');
     await waitFor(`document.getElementById('updateJobStatus').textContent.includes('Actualización completada')&&document.querySelector('[data-update-role=panel]').disabled&&document.getElementById('updateProgress').hidden&&document.getElementById('panelUpdateNotice').hidden`);
   }
-  await checkRefreshTimeout('reloadUpdates', 'action=updates', 'Comprobando…', 'updatesCheckedAt');
+  await checkRefreshTimeout('checkUpdates', 'check_updates', 'Comprobando…', 'feedback');
   await click('[data-view=services]');
   assert(await evaluate(`document.getElementById('scanRange').value==='192.168.1.0/24'&&document.querySelector('[data-all-networks]').classList.contains('selected')`),'Scanner must initially select all configured networks');
   assert(await evaluate(`document.getElementById('applyButton') === null && document.getElementById('retryButton').hidden`),'Normal workflow must not require manual publication');
@@ -275,7 +305,7 @@ try {
   await click('#ndiInstallFromTest');await waitFor(`!document.getElementById('ndiRuntimeAccept').disabled`);
   await click('#ndiRuntimeAccept');await waitFor(`!document.getElementById('ndiRuntimeDialog').open&&document.getElementById('ndiInstallFromTest').hidden&&document.getElementById('ndiTestResult').textContent.includes('5 fuentes')`);
   await click('#ndiTab');await waitFor(`document.getElementById('ndiSourceCount').textContent==='5'`);
-  await checkRefreshTimeout('ndiRefresh', 'api/ndi/status', 'Consultando…', 'ndiWarning');
+  await checkRefreshTimeout('ndiRefresh', 'api/ndi/refresh', 'Consultando…', 'ndiWarning');
   const busyMs = await evaluate(`new Promise(resolve => {
     const button = document.getElementById('ndiRefresh');
     const startedAt = performance.now();

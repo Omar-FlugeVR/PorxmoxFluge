@@ -1,0 +1,81 @@
+name: Publicar panel
+
+on:
+  workflow_dispatch:
+    inputs:
+      incremento:
+        description: Incremento de versión
+        type: choice
+        options: [parche, menor, mayor]
+        default: parche
+      obligatoria:
+        description: Actualización obligatoria. Desmarcada se ofrece como opcional.
+        type: boolean
+        default: false
+      minima:
+        description: Versión mínima compatible. Vacío conserva la anterior. Escribe ninguna para quitarla.
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publicar-panel
+  cancel-in-progress: false
+
+jobs:
+  validar:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/check.yml
+
+  publicar:
+    needs: validar
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Publicar la versión probada
+        env:
+          INCREMENTO: ${{ inputs.incremento }}
+          OBLIGATORIA: ${{ inputs.obligatoria }}
+          MINIMA: ${{ inputs.minima }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(python3 scripts/panel_release.py "$INCREMENTO" "$OBLIGATORIA" "$MINIMA")"
+          minimum="$(python3 -c 'import json; print(json.load(open("panel-version.json")).get("minimum_version", ""))')"
+          if [[ -n "$minimum" ]]; then
+            minimum_tag="panel-v${minimum}"
+            published="$(gh release view "$minimum_tag" --json tagName,isDraft,isPrerelease --jq 'select(.isDraft == false and .isPrerelease == false) | .tagName')"
+            if [[ "$published" != "$minimum_tag" ]]; then
+              printf 'La versión mínima %s debe estar publicada.\n' "$minimum" >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "refs/tags/$minimum_tag" "$GITHUB_SHA"; then
+              printf 'La versión mínima %s debe pertenecer al historial de main.\n' "$minimum" >&2
+              exit 1
+            fi
+          fi
+          tag="panel-v${version}"
+          tag_ref="refs/tags/${tag}"
+          if git show-ref --verify --quiet "$tag_ref"; then
+            # Reutilizar el commit y tag si el intento previo se quedó en la publicación.
+            commit="$(git rev-parse "${tag_ref}^{commit}")"
+            test "$(git rev-parse "${commit}^")" = "$GITHUB_SHA"
+            git diff --quiet "$commit" -- panel-version.json
+            git diff --quiet "$GITHUB_SHA" "$commit" -- . ':!panel-version.json'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add panel-version.json
+            git commit -m "Publicar panel ${version}"
+            git tag "$tag"
+            git push --atomic origin HEAD:refs/heads/main "$tag_ref"
+          fi
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --verify-tag --latest --title "Servicio de control ${version}" --notes "Versión ${version} del Servicio de control."
+          fi

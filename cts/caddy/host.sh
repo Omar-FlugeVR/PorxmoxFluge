@@ -55,7 +55,7 @@ configure_panel_updates() {
         cts/{adguard,caddy,companion,ndi}/host.sh; do
         install -D -m 0600 -- "$REPO_DIR/$path" "$snapshot/$path" || return
     done
-    printf '%s\n' "$REPO_DIR" > "$snapshot/checkout" &&
+    printf '%s\n' "${FLUGE_UPDATES_CHECKOUT:-$REPO_DIR}" > "$snapshot/checkout" &&
         chmod 0600 "$snapshot/checkout" &&
         install -m 0644 "$units/"studio-infra-{updates,update-jobs}.{service,timer} /etc/systemd/system/ &&
         systemctl daemon-reload && systemctl enable --now studio-infra-updates.timer studio-infra-update-jobs.timer &&
@@ -63,8 +63,43 @@ configure_panel_updates() {
 }
 
 apply_caddy() {
-    local stage revision='' dirty=false changes
+    local stage revision='' dirty=false changes minimum
     need_commands tar
+    if revision="$(git -C "$REPO_DIR" rev-parse --verify HEAD 2>/dev/null)" && [[ "$revision" =~ ^[a-f0-9]{40}$ ]]; then
+        if ! changes="$(git -C "$REPO_DIR" status --porcelain -- cts/caddy/panel panel-version.json)" || [[ -n "$changes" ]]; then dirty=true; fi
+    else
+        revision=''
+    fi
+    minimum="$(PYTHONPATH="$REPO_DIR/scripts" python3 - "$REPO_DIR/panel-version.json" "$TEMP_DIR/revision.json" "$revision" "$dirty" <<'PY'
+import json, sys
+from pathlib import Path
+from panel_release import validate_release
+
+source, destination, commit, dirty = sys.argv[1:]
+release = validate_release(json.loads(Path(source).read_text(encoding='utf-8')))
+Path(destination).write_text(json.dumps({'commit': commit or None, 'dirty': dirty == 'true', 'release': release}), encoding='utf-8')
+print(release.get('minimum_version', ''))
+PY
+)"
+    if [[ -n "$minimum" ]]; then
+        pct exec "$CADDY_CT_ID" -- sh -ec 'if test -d /opt/fluge-control; then cat /opt/fluge-control/revision.json; else printf null; fi' > "$TEMP_DIR/installed-panel.json" \
+            || die 'No se puede verificar la versión instalada del panel.'
+        PYTHONPATH="$REPO_DIR/scripts" python3 - "$minimum" "$TEMP_DIR/installed-panel.json" <<'PY'
+import json, sys
+from pathlib import Path
+from panel_release import validate_release, version_parts
+
+minimum, filename = sys.argv[1:]
+try:
+    revision = json.loads(Path(filename).read_text(encoding='utf-8'))
+    if revision is not None:
+        release = validate_release(revision.get('release') if isinstance(revision, dict) else None)
+        if version_parts(release['version']) < version_parts(minimum):
+            raise SystemExit(f'La versión instalada {release["version"]} debe pasar primero por {minimum}. Usa Actualizaciones en el panel.')
+except (OSError, ValueError):
+    raise SystemExit('No se conoce la versión instalada del panel. Comprueba la revisión antes de aplicar el mínimo.') from None
+PY
+    fi
     mkdir -p -- "$REPO_DIR/.secrets"
     chmod 700 -- "$REPO_DIR/.secrets"
     PYTHONPATH="$REPO_DIR/scripts" python3 - "$REPO_DIR/.secrets" "$TEMP_DIR/rendered/caddy/panel-config.json" <<'PY'
@@ -93,20 +128,6 @@ os.chmod(destination, 0o600)
 PY
     tar -C "$REPO_DIR/cts/caddy/panel" --exclude='__pycache__' --exclude='*.pyc' \
         --exclude='./bin/demo-router.php' -cf "$TEMP_DIR/panel.tar" .
-    if revision="$(git -C "$REPO_DIR" rev-parse --verify HEAD 2>/dev/null)" && [[ "$revision" =~ ^[a-f0-9]{40}$ ]]; then
-        if ! changes="$(git -C "$REPO_DIR" status --porcelain -- cts/caddy/panel panel-version.json)" || [[ -n "$changes" ]]; then dirty=true; fi
-    else
-        revision=''
-    fi
-    PYTHONPATH="$REPO_DIR/scripts" python3 - "$REPO_DIR/panel-version.json" "$TEMP_DIR/revision.json" "$revision" "$dirty" <<'PY'
-import json, sys
-from pathlib import Path
-from panel_release import validate_release
-
-source, destination, commit, dirty = sys.argv[1:]
-release = validate_release(json.loads(Path(source).read_text(encoding='utf-8')))
-Path(destination).write_text(json.dumps({'commit': commit or None, 'dirty': dirty == 'true', 'release': release}), encoding='utf-8')
-PY
     stage="$(pct exec "$CADDY_CT_ID" -- mktemp -d /tmp/studio-caddy.XXXXXXXX)"
     pct push "$CADDY_CT_ID" "$TEMP_DIR/rendered/caddy/Caddyfile" "$stage/Caddyfile" --perms 0600
     pct push "$CADDY_CT_ID" "$TEMP_DIR/rendered/caddy/seed.json" "$stage/seed.json" --perms 0600

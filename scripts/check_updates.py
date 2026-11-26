@@ -9,10 +9,11 @@ import sys
 import os
 import tarfile
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from ndi_release import CACHE, fetch_release
 from ndi_sdk import display_license, read_license
-from panel_release import validate_release
+from panel_release import PANEL_TAG, validate_release, version_parts
 
 GITHUB_API = 'https://api.github.com/repos/'
 RELEASE_REPOS = {'adguard': 'AdguardTeam/AdGuardHome', 'caddy': 'caddyserver/caddy'}
@@ -38,6 +39,65 @@ def github_origin(checkout):
     return match[1] if match else None
 
 
+def panel_release_tag(repo):
+    try:
+        published = get_json(f'{GITHUB_API}{repo}/releases/latest')
+    except HTTPError as error:
+        if error.code == 404:
+            return None
+        raise
+    tag = published.get('tag_name')
+    if not isinstance(tag, str) or not PANEL_TAG.fullmatch(tag):
+        raise ValueError('La última release no tiene un tag de versión del panel.')
+    return tag
+
+
+def panel_revision(repo, tag=None):
+    commit = get_json(f'{GITHUB_API}{repo}/commits/{tag or "HEAD"}').get('sha')
+    if not isinstance(commit, str) or not COMMIT.fullmatch(commit):
+        raise ValueError('El commit publicado no es válido.')
+    release = validate_release(get_json(f'{GITHUB_API}{repo}/contents/panel-version.json?ref={commit}',
+                                        'application/vnd.github.raw+json'))
+    if tag and tag != 'panel-v' + release['version']:
+        raise ValueError('El tag publicado no coincide con panel-version.json.')
+    return commit, release
+
+
+def compare_commits(repo, installed, published):
+    return get_json(f'{GITHUB_API}{repo}/compare/{installed}...{published}?per_page=1').get('status')
+
+
+def panel_upgrade_path(repo, installed, installed_release, latest, release, tag):
+    if 'minimum_version' not in release:
+        return []
+    if installed_release is None:
+        raise ValueError('Hace falta conocer la versión instalada para comprobar la compatibilidad.')
+    current = version_parts(installed_release['version'])
+    if current >= version_parts(release['minimum_version']):
+        return []
+    steps = [{'commit': latest, 'version': release['version'], 'tag': tag}]
+    while release.get('minimum_version') and current < version_parts(release['minimum_version']):
+        minimum = release['minimum_version']
+        step_tag = 'panel-v' + minimum
+        try:
+            published = get_json(f'{GITHUB_API}{repo}/releases/tags/{step_tag}')
+            if published.get('tag_name') != step_tag or published.get('draft') or published.get('prerelease'):
+                raise ValueError(f'La versión intermedia {minimum} debe estar publicada.')
+            commit, release = panel_revision(repo, step_tag)
+        except HTTPError as error:
+            if error.code != 404:
+                raise
+            raise ValueError(f'La versión intermedia {minimum} debe estar publicada.') from error
+        steps.append({'commit': commit, 'version': release['version'], 'tag': step_tag})
+    steps.reverse()
+    previous = installed
+    for step in steps:
+        if compare_commits(repo, previous, step['commit']) != 'ahead':
+            raise ValueError(f'La versión {step["version"]} no continúa el historial de la instalación.')
+        previous = step['commit']
+    return steps
+
+
 def compare_panel(checkout, revision):
     commit = revision.get('commit')
     commit = commit if isinstance(commit, str) and COMMIT.fullmatch(commit) else None
@@ -52,26 +112,32 @@ def compare_panel(checkout, revision):
         repo = github_origin(checkout)
         if not repo:
             return entry
-        latest = get_json(f'{GITHUB_API}{repo}/commits/HEAD').get('sha')
-        if not isinstance(latest, str) or not COMMIT.fullmatch(latest):
-            return entry
-        release = validate_release(get_json(f'{GITHUB_API}{repo}/contents/panel-version.json?ref={latest}',
-                                            'application/vnd.github.raw+json'))
-        if not release['update_required']:
+        tag = panel_release_tag(repo)
+        latest, release = panel_revision(repo, tag)
+        if not tag and not release['update_required']:
             entry.update(latestRelease=entry['installedRelease'],
                          status='local_changes' if dirty else 'current' if entry['installedRelease'] else 'unknown_local')
             return entry
         entry['latest'] = latest
         entry['latestRelease'] = release
+        if tag:
+            entry['tag'] = tag
         if not commit or dirty:
             entry['status'] = 'local_changes' if dirty else 'unknown_local'
         elif commit == latest:
             entry['status'] = 'current'
         else:
-            compare = f'{commit}...{latest}'
-            status = get_json(f'{GITHUB_API}{repo}/compare/{compare}?per_page=1').get('status')
+            status = compare_commits(repo, commit, latest)
             entry['status'] = {'ahead': 'update', 'behind': 'newer', 'diverged': 'diverged'}.get(status, 'unknown_remote')
+            if entry['status'] == 'update':
+                try:
+                    path = panel_upgrade_path(repo, commit, entry['installedRelease'], latest, release, tag)
+                    if path:
+                        entry['upgradePath'] = path
+                except ValueError as error:
+                    entry.update(status='incompatible', compatibility=str(error))
     except (OSError, HTTPException, ValueError, TypeError, subprocess.SubprocessError) as error:
+        entry['status'] = 'unknown_remote'
         print(f'Panel Fluge: {error}', file=sys.stderr)
     return entry
 

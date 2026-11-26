@@ -1,5 +1,5 @@
 [Unit]
-Description=Aplicar una actualizacion solicitada desde Servicio de control
+Description=Comprobar o aplicar actualizaciones solicitadas desde Servicio de control
 After=network-online.target pve-cluster.service
 Wants=network-online.target
 

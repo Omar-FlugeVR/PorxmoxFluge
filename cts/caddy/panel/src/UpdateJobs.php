@@ -13,14 +13,37 @@ final class UpdateJobs
 
     public function report(): array
     {
-        $report = $this->reports->read('updates.json', ['checkedAt' => null, 'services' => []]);
         $request = $this->store->read('update-request.json');
         $job = $this->reports->read('update-job.json');
+        $report = $this->reports->read('updates.json', ['checkedAt' => null, 'services' => []]);
         if ($request && ($job['id'] ?? null) !== $request['id']) {
             $job = $request + ['state' => time() - $request['created'] > 900 ? 'expired' : 'queued'];
         }
         if ($job) $report['job'] = $job;
         return $report;
+    }
+
+    public function enqueueCheck(): array
+    {
+        return $this->store->locked('update-request', function (): array {
+            $report = $this->report();
+            $job = $report['job'] ?? [];
+            if (in_array($job['state'] ?? '', ['queued', 'running'], true)) {
+                if ($job['role'] === 'check') return $job;
+                throw new HttpError(409, 'Ya hay una actualización en curso.');
+            }
+            $request = ['id' => bin2hex(random_bytes(16)), 'role' => 'check', 'created' => time()];
+            $this->store->write('update-request.json', $request);
+            if (getenv('FLUGE_DEMO') === '1') {
+                $report['checkedAt'] = gmdate(DATE_ATOM);
+                unset($report['job']);
+                $this->reports->write('updates.json', $report);
+                $job = $request + ['state' => 'success'];
+                $this->reports->write('update-job.json', $job);
+                return $job;
+            }
+            return $request + ['state' => 'queued'];
+        });
     }
 
     public function enqueue(array $input): array
@@ -33,16 +56,22 @@ final class UpdateJobs
         return $this->store->locked('update-request', function () use ($input, $role, $version): array {
             $report = $this->report();
             if (in_array($report['job']['state'] ?? '', ['queued', 'running'], true)) {
-                throw new HttpError(409, 'Ya hay una actualización en curso.');
+                throw new HttpError(409, 'Ya hay una comprobación o actualización en curso.');
             }
             $entry = $report['services'][$role] ?? [];
             $checkedAt = strtotime($report['checkedAt'] ?? '');
             if (!$checkedAt || time() - $checkedAt > 7200 || ($entry['status'] ?? '') !== 'update'
-                || $version !== ($entry['latest'] ?? null) || !($entry['canUpdate'] ?? false)
-                || ($role === 'panel' && ($entry['latestRelease']['update_required'] ?? false) !== true)) {
+                || $version !== ($entry['latest'] ?? null) || !($entry['canUpdate'] ?? false)) {
                 throw new HttpError(409, 'La versión seleccionada ya no está disponible en el informe.');
             }
             $request = ['id' => bin2hex(random_bytes(16)), 'role' => $role, 'version' => $version, 'created' => time()];
+            if ($role === 'panel') {
+                $steps = array_column($entry['upgradePath'] ?? [], 'commit');
+                if (($input['upgradePath'] ?? []) !== $steps) {
+                    throw new HttpError(409, 'La ruta de actualización cambió. Vuelve a comprobar las versiones.');
+                }
+                if ($steps) $request['planHash'] = hash('sha256', implode(',', $steps));
+            }
             if ($entry['license'] ?? null) {
                 if (($input['accepted'] ?? false) !== true || ($input['licenseHash'] ?? '') !== $entry['license']['hash']) {
                     throw new HttpError(422, 'Acepta la licencia de NDI para continuar.');
@@ -53,7 +82,10 @@ final class UpdateJobs
             if (getenv('FLUGE_DEMO') === '1') {
                 $report['services'][$role]['installed'] = $version;
                 $report['services'][$role]['status'] = 'current';
-                if ($role === 'panel') $report['services'][$role]['installedRelease'] = $entry['latestRelease'];
+                if ($role === 'panel') {
+                    $report['services'][$role]['installedRelease'] = $entry['latestRelease'];
+                    unset($report['services'][$role]['upgradePath']);
+                }
                 unset($report['job']);
                 $this->reports->write('updates.json', $report);
                 $this->reports->write('update-job.json', $request + ['state' => 'success']);

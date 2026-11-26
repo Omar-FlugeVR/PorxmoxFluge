@@ -110,12 +110,18 @@ const updateStates = {
   current: 'Al día', update: 'Actualización disponible', not_installed: 'Sin instalar',
   unavailable: 'CT no disponible', unknown_local: 'Versión instalada desconocida',
   unknown_remote: 'Publicación sin verificar', newer: 'Instalada más reciente',
-  diverged: 'Historial diferente', local_changes: 'Cambios locales', manual: 'Revisión manual',
+  diverged: 'Historial diferente', local_changes: 'Cambios locales', manual: 'Revisión manual', incompatible: 'Ruta de actualización no disponible',
 };
-let updateEntries = {}, updateTimer = null, updateBusy = false, updateSubmitting = false, updateGeneration = 0;
+let updateEntries = {}, updateTimer = null, updateBusy = false, updateSubmitting = false, updateReading = false;
+let updateChecking = false, updateGeneration = 0;
 const updateMessages = {
   queued: 'En cola en Proxmox.', running: 'Actualizando. El servicio puede interrumpirse brevemente.',
   success: 'Actualización completada.', failure: 'La actualización falló. Consulta el registro del host.',
+  expired: 'La solicitud caducó antes de que Proxmox la recogiera.',
+};
+const checkMessages = {
+  queued: 'En cola en Proxmox.', running: 'Buscando actualizaciones…',
+  success: 'Búsqueda completada.', failure: 'La búsqueda falló. Consulta el registro del host.',
   expired: 'La solicitud caducó antes de que Proxmox la recogiera.',
 };
 function updateVersion(role, entry, key) {
@@ -125,24 +131,33 @@ function updateVersion(role, entry, key) {
 }
 function showUpdateJob(role, message, pending) {
   const status = $('updateJobStatus');
-  const text = message ? `${updateServices[role]} · ${message}` : '';
+  const title = role === 'check' ? 'Comprobación de versiones' : updateServices[role];
+  const text = message ? `${title} · ${message}` : '';
   if (status.textContent !== text) status.textContent = text;
   status.hidden = !text;
   $('updateProgress').hidden = !pending;
+  if (pending) $('updateProgress').setAttribute('aria-label', role === 'check' ? 'Comprobación de versiones en curso' : 'Actualización en curso');
+  updateChecking = role === 'check' && pending;
+  setCheckButton();
+}
+function setCheckButton() {
+  const button = $('checkUpdates');
+  button.disabled = updateReading || updateBusy || updateSubmitting;
+  button.textContent = updateChecking ? 'Comprobando…' : 'Buscar actualizaciones';
 }
 async function refreshUpdates() {
   clearTimeout(updateTimer);
-  const button = $('reloadUpdates');
-  if (!admin() || $('app').hidden || button.disabled || updateSubmitting) return;
-  button.disabled = true;
-  button.textContent = 'Comprobando…';
+  if (!admin() || $('app').hidden || updateReading || updateSubmitting) return;
+  updateReading = true;
+  setCheckButton();
   const generation = updateGeneration;
   try {
     const {checkedAt, services, job} = await request('updates', {timeout:8000});
     if (generation !== updateGeneration) return;
     updateEntries = services || {};
     updateBusy = ['queued', 'running'].includes(job?.state);
-    showUpdateJob(job?.role, job?.message || updateMessages[job?.state], updateBusy);
+    const messages = job?.role === 'check' ? checkMessages : updateMessages;
+    showUpdateJob(job?.role, job?.message || messages[job?.state], updateBusy);
     const date = new Date(checkedAt);
     const validDate = checkedAt && Number.isFinite(date.getTime());
     const stale = validDate && Date.now() - date.getTime() > 2 * 60 * 60 * 1000;
@@ -150,18 +165,21 @@ async function refreshUpdates() {
       ? `Última comprobación · ${date.toLocaleString('es-ES')}${stale ? ' · Hace más de dos horas' : ''}`
       : 'Pendiente de la primera comprobación en Proxmox.';
     const panel = services?.panel;
-    const required = panel?.status === 'update' && panel.latestRelease?.update_required === true;
+    const required = ['update', 'incompatible'].includes(panel?.status) && panel.latestRelease?.update_required === true;
     const notice = $('panelUpdateNotice');
     notice.hidden = !required;
     if (required) {
-      const text = `Actualización requerida · Servicio de control ${updateVersion('panel', panel, 'latest')}`;
+      const detail = panel.compatibility ? ` · ${panel.compatibility}` : '';
+      const text = `Actualización requerida · Servicio de control ${updateVersion('panel', panel, 'latest')}${detail}`;
       if (notice.textContent !== text) notice.textContent = text;
     }
     $('updatesRows').innerHTML = Object.entries(updateServices).map(([role, name]) => {
       const entry = services?.[role] || {};
-      const available = !updateBusy && validDate && !stale && entry.status === 'update' && entry.canUpdate && (role !== 'panel' || required);
-      const status = role === 'panel' && required ? 'Actualización requerida' : updateStates[entry.status] || 'Pendiente';
-      return `<tr><td><strong>${name}</strong></td><td><code>${esc(updateVersion(role, entry, 'installed'))}</code>${entry.dirty ? '<p class="hint">Con cambios locales</p>' : ''}</td><td><code>${esc(updateVersion(role, entry, 'latest'))}</code></td><td class="${entry.status === 'update' ? 'sync-status' : 'muted'}">${esc(status)}</td><td><button type="button" class="secondary" data-update-role="${role}" ${available ? '' : 'disabled'}>Actualizar</button></td></tr>`;
+      const available = !updateBusy && validDate && !stale && entry.status === 'update' && entry.canUpdate;
+      const status = role === 'panel' && required && entry.status === 'update' ? 'Actualización requerida' : updateStates[entry.status] || 'Pendiente';
+      const route = entry.upgradePath?.map(step => step.version).join(' → ');
+      const detail = route || entry.compatibility;
+      return `<tr><td><strong>${name}</strong></td><td><code>${esc(updateVersion(role, entry, 'installed'))}</code>${entry.dirty ? '<p class="hint">Con cambios locales</p>' : ''}</td><td><code>${esc(updateVersion(role, entry, 'latest'))}</code></td><td class="${entry.status === 'update' ? 'sync-status' : 'muted'}">${esc(status)}${detail ? `<p class="hint">${esc(detail)}</p>` : ''}</td><td><button type="button" class="secondary" data-update-role="${role}" ${available ? '' : 'disabled'}>Actualizar</button></td></tr>`;
     }).join('');
   } catch (error) {
     if (generation === updateGeneration) {
@@ -169,8 +187,8 @@ async function refreshUpdates() {
       else $('updatesCheckedAt').textContent = error.name === 'TimeoutError' ? 'El informe ha tardado demasiado en responder.' : error.message;
     }
   } finally {
-    button.disabled = false;
-    button.textContent = 'Recargar informe';
+    updateReading = false;
+    setCheckButton();
     if (admin() && !$('app').hidden && !updateSubmitting) {
       const delay = generation !== updateGeneration ? 0 : updateBusy ? 3000 : 60000;
       updateTimer = setTimeout(refreshUpdates, delay);
@@ -178,14 +196,35 @@ async function refreshUpdates() {
   }
 }
 
+async function searchUpdates() {
+  if (!admin() || $('app').hidden || updateBusy || updateSubmitting || updateReading) return;
+  updateGeneration++;
+  updateSubmitting = updateBusy = true;
+  showUpdateJob('check', 'Enviando solicitud…', true);
+  try {
+    const job = await request('check_updates', {method:'POST', data:{}, timeout:8000});
+    updateBusy = ['queued', 'running'].includes(job.state);
+    showUpdateJob('check', checkMessages[job.state], updateBusy);
+  } catch (error) {
+    updateBusy = false;
+    showUpdateJob('check', '', false);
+    feedback(error.name === 'TimeoutError' ? 'La solicitud de búsqueda ha tardado demasiado en responder.' : error.message, 'error');
+  } finally {
+    updateSubmitting = false;
+    await refreshUpdates();
+  }
+}
+
 function confirmUpdate(role) {
   const entry = updateEntries[role];
-  if (updateBusy || !entry?.canUpdate || entry.status !== 'update' || (role === 'panel' && entry.latestRelease?.update_required !== true)) return;
+  if (updateBusy || !entry?.canUpdate || entry.status !== 'update') return;
   const dialog = $('updateDialog');
   const accept = $('updateAccept');
   $('updateDialogTitle').textContent = `Actualizar ${updateServices[role]}`;
   const impact = role === 'panel' || role === 'caddy' ? 'El panel puede quedar inaccesible unos segundos.' : 'El servicio puede interrumpirse durante la actualización.';
-  $('updateDialogText').textContent = `Versión ${updateVersion(role, entry, 'latest')}. ${impact}`;
+  const route = entry.upgradePath?.map(step => step.version).join(' → ');
+  const target = route ? `Se instalarán por orden ${route}.` : `Versión ${updateVersion(role, entry, 'latest')}.`;
+  $('updateDialogText').textContent = `${target} ${impact}`;
   $('updateDialogLicense').hidden = !entry.license;
   $('updateDialogLicense').textContent = entry.license?.text || '';
   $('updateDialogError').textContent = '';
@@ -197,7 +236,8 @@ function confirmUpdate(role) {
     showUpdateJob(role, 'Enviando solicitud…', true);
     dialog.close();
     try {
-      const job = await post('update_service', {role,version:entry.latest,licenseHash:entry.license?.hash,accepted:Boolean(entry.license)});
+      const job = await post('update_service', {role,version:entry.latest,upgradePath:entry.upgradePath?.map(step=>step.commit),
+        licenseHash:entry.license?.hash,accepted:Boolean(entry.license)});
       updateBusy = ['queued', 'running'].includes(job.state);
       showUpdateJob(role, updateMessages[job.state], updateBusy);
     } catch (error) {
@@ -621,7 +661,7 @@ $('logout').onclick = guard(async()=>{
   showLoginDelay(session.login_retry_after);
 });
 $('settingsButton').onclick = ()=>switchView('settings');
-$('reloadUpdates').onclick = refreshUpdates;
+$('checkUpdates').onclick = searchUpdates;
 $('addButton').onclick = ()=>openEditor(view === 'devices' ? 'device' : 'service');
 $('search').addEventListener('input',renderDirectory);
 $('editorForm').addEventListener('submit',submitEditor);

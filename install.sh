@@ -60,7 +60,7 @@ done
 select_cts "$TARGET_CT"
 
 show_installer_header
-require_proxmox
+require_proxmox 0
 if [[ "$ASSUME_YES" == 0 || "$POST_INSTALL" == 1 ]]; then
     info 'Perfil del post-install: desactivar los repositorios Enterprise de PVE y Ceph, habilitar pve-no-subscription, quitar el aviso de suscripción y actualizar.'
     info 'Se conserva la configuración de HA y Corosync. Se omite pvetest y se pospone el reinicio del host.'

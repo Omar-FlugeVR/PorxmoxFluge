@@ -218,6 +218,32 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(self.request('updates'), (200, report))
         self.assertEqual(self.request('updates', client=urllib.request.build_opener())[0], 401)
 
+    def test_search_updates_requests_fresh_report_without_installing(self):
+        path = self.state / 'updates.json'
+        services = {'caddy': {'installed':'2.11.8', 'latest':'2.11.9', 'status':'update', 'canUpdate':True}}
+        path.write_text(json.dumps({'checkedAt':None, 'services':services}), encoding='utf-8')
+        self.assertEqual(self.request('check_updates', {}, csrf=False)[0], 403)
+        viewer = {'revision':0, 'username':'checkviewer', 'password':'ViewerDemo1', 'confirmPassword':'ViewerDemo1', 'role':'user'}
+        self.assertEqual(self.request('create_user', viewer)[0], 200)
+        client, session = self.another_session('checkviewer', 'ViewerDemo1')
+        self.assertEqual(self.request('check_updates', {}, client=client, csrf=session['csrfToken'])[0], 403)
+
+        status, job = self.request('check_updates', {})
+        self.assertEqual((status, job['role'], job['state']), (200, 'check', 'success'))
+        report = self.request('updates')[1]
+        self.assertTrue(report['checkedAt'])
+        self.assertEqual(report['services'], services)
+        self.assertEqual(report['job'], job)
+
+        queued = {'id':'a' * 32, 'role':'check', 'created':int(time.time())}
+        queue = self.state / 'update-request.json'
+        queue.write_text(json.dumps(queued), encoding='utf-8')
+        self.assertEqual(self.request('check_updates', {}), (200, {**queued, 'state':'queued'}))
+        self.assertEqual(self.request('update_service', {'role':'caddy', 'version':'2.11.9'})[0], 409)
+        queue.write_text(json.dumps({**queued, 'role':'caddy', 'version':'2.11.9'}), encoding='utf-8')
+        self.assertEqual(self.request('check_updates', {})[0], 409)
+        self.assertEqual(self.request('updates')[1]['checkedAt'], report['checkedAt'])
+
     def test_update_requests_use_the_report_and_require_acceptance_for_a_new_ndi_license(self):
         from datetime import datetime, timezone
         release = {'status':'update', 'canUpdate':True, 'installed':'SDK 6.3.1', 'latest':'SDK 6.4.0',
@@ -239,15 +265,22 @@ class PanelTests(unittest.TestCase):
         from datetime import datetime, timezone
         target = 'b' * 40
         latest = {'version':'0.0.2','type':'test','update_required':False}
-        entry = {'latest':target,'latestRelease':latest,'status':'update','canUpdate':True}
+        entry = {'latest':target,'latestRelease':latest,'status':'current','canUpdate':False}
         report = {'checkedAt':datetime.now(timezone.utc).isoformat(),'services':{'panel':entry}}
         path = self.state / 'updates.json'
         path.write_text(json.dumps(report), encoding='utf-8')
         self.assertEqual(self.request('update_service', {'role':'panel','version':target})[0], 409)
-        latest['update_required'] = True
+        entry.update(status='update', canUpdate=True, tag='panel-v0.0.2')
+        bridge = 'a' * 40
+        entry['upgradePath'] = [{'version':'0.0.1', 'commit':bridge}, {'version':'0.0.2', 'commit':target}]
         path.write_text(json.dumps(report), encoding='utf-8')
-        self.assertEqual(self.request('update_service', {'role':'panel','version':target})[0], 200)
-        self.assertEqual(self.request('updates')[1]['services']['panel']['installedRelease'], latest)
+        self.assertEqual(self.request('update_service', {'role':'panel','version':target})[0], 409)
+        status, job = self.request('update_service', {'role':'panel','version':target,'upgradePath':[bridge,target]})
+        self.assertEqual(status, 200)
+        self.assertEqual(job['planHash'], sha256(f'{bridge},{target}'.encode()).hexdigest())
+        deployed = self.request('updates')[1]['services']['panel']
+        self.assertEqual(deployed['installedRelease'], latest)
+        self.assertNotIn('upgradePath', deployed)
 
     def test_categories_propagate_names_and_reassign_without_deleting_equipment(self):
         data = self.inventory()
@@ -497,11 +530,19 @@ class PanelTests(unittest.TestCase):
         second = self.request('/api/ndi/status')[1]
         self.assertNotEqual(first['latency_ms'],second['latency_ms'])
         self.assertEqual(json.loads(path.read_text())['sequence'],2)
+        self.assertEqual(self.request('/api/ndi/refresh', {}, csrf=False)[0],403)
+        self.assertEqual(self.request('/api/ndi/refresh', {}, client=urllib.request.build_opener(), csrf=False)[0],401)
+        status, manual = self.request('/api/ndi/refresh', {})
+        self.assertEqual(status,200,manual)
+        self.assertNotEqual(second['latency_ms'],manual['latency_ms'])
+        self.assertEqual(json.loads(path.read_text())['sequence'],3)
+        self.assertEqual(self.request('/api/ndi/status')[1],manual)
         self.assertEqual(self.save_ndi({**self.ndi_settings(),'mock_scenario':'offline'})[0],200)
         self.assertFalse(self.request('/api/ndi/status')[1]['online'])
         cache_before = path.read_bytes()
         self.assertEqual(self.save_ndi({**self.ndi_settings(),'enabled':False})[0],200)
         self.assertEqual(self.request('/api/ndi/status')[1],{'enabled':False})
+        self.assertEqual(self.request('/api/ndi/refresh', {}),(200,{'enabled':False}))
         self.assertEqual(path.read_bytes(),cache_before)
 
     def test_ndi_connection_test_scenarios_and_permissions(self):
@@ -518,6 +559,7 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(created['status'],'ok')
         client,session = self.another_session('ndiviewer','ViewerDemo1')
         self.assertEqual(self.request('/api/ndi/status',client=client)[1],{'enabled':False})
+        self.assertEqual(self.request('/api/ndi/refresh',{},client=client,csrf=session['csrfToken']),(200,{'enabled':False}))
         self.assertEqual(self.request('/api/ndi/test',self.ndi_settings(),client=client,csrf=session['csrfToken'])[0],403)
 
     def ndi_refresh(self):

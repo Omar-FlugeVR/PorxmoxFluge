@@ -204,6 +204,7 @@ Codex:
     Secuencia de instalación en Bash — 26/11/2026
     ☑ Simplificar el README a un solo bloque de instalación. Retirar la sesión temporal manual al comprobar que install.sh se ejecuta en un proceso propio y que apt-get y git clone se lanzan desde el Shell del nodo antes del asistente.
     ☑ Destacar la instalación de Git en Proxmox limpio y encadenar el clon y el asistente tras la instalación correcta de las herramientas.
+    ☑ Corregir SC2119 en install.sh y sync.sh pasando a require_proxmox el tiempo de espera explícito de cero segundos. Reproducido con ShellCheck 0.9.0. Pasaron localmente el análisis de los scripts del workflow y ambas pruebas Bash. Pendiente la siguiente ejecución en GitHub.
 
     Salida a Internet de la VM recién instalada — 26/11/2026
     ☑ Localizar en el registro los tiempos de espera TCP hacia los repositorios Debian y Proxmox antes de instalar Git. Confirmar desde Windows que los repositorios públicos de Debian responden y que la VM está en el Default Switch, cuya interfaz del host usa 172.19.160.1/20. Pendiente comprobar la ruta de salida dentro de la VM.
@@ -215,11 +216,19 @@ Codex:
     ☑ Añadir panel-version.json en la raíz con la versión 0.0.1, tipo test y update_required desactivado. Guardar la versión y el tipo al desplegar, mostrar esos datos en Actualizaciones y usar el commit de GitHub para seleccionar la revisión exacta.
     ☑ Quitar Ver cambios. Mostrar Actualización requerida en todo el panel de administración cuando el commit publicado la solicita y está pendiente, e ignorar los commits marcados con false. Mostrar una barra desde la confirmación y mientras la actualización está en curso.
     ☑ Verificar en pruebas HTTP y Chromium el aviso, su ausencia con false y la barra de progreso. Comprobar con un doble de Proxmox el registro de versión y tipo en el despliegue y verificar que GitHub entrega JSON de un commit concreto. Pasaron Bash y ShellCheck; pendiente el despliegue en Proxmox.
+    ☑ Confirmar en la VM de Proxmox que el chequeo horario empezó antes del commit de la versión 0.0.2 y conservó 0.0.1 como última publicación. Ejecutar otra comprobación y verificar que el informe ofrece 0.0.2 como actualización requerida mientras el CT sigue en 0.0.1.
+    ☑ Sustituir Recargar informe por Buscar actualizaciones. Enviar una comprobación nueva a la cola de Proxmox, mostrar el progreso y actualizar el informe al terminar. Verificado en HTTP, Chromium y con un doble del proceso de Proxmox. Pendiente desplegar en la VM.
+    ☑ Añadir Publicar panel en GitHub Actions con incremento de parche, menor o mayor y actualización obligatoria desmarcada por defecto. Reutilizar las pruebas y publicar la versión con un tag panel-v. Verificar en un remoto Git local la publicación y la recuperación tras un fallo simulado.
+    ☑ Consultar la release del panel desde Proxmox, verificar el commit de su tag y ofrecer también las actualizaciones opcionales. Verificado con dobles de GitHub, pruebas HTTP y Chromium. Pendientes la primera publicación en GitHub y el despliegue del comprobador en la VM.
+    ☑ Añadir Versión mínima compatible al workflow y al manifiesto. Heredar el requisito por defecto y exigir una release intermedia publicada en el historial de main.
+    ☑ Mostrar y confirmar la ruta completa del panel, verificar los commits antes de aplicar el primer paso y detener la cadena ante un fallo. El despliegue manual comprueba el mínimo. Verificado localmente con dobles de GitHub y Proxmox, un checkout temporal de Git, pruebas HTTP y Chromium. Pendiente validar una cadena en la VM.
+    ☑ Aclarar la casilla Actualización obligatoria del workflow. Verificar en Chromium que una versión opcional figura en Actualizaciones sin aviso general y que una obligatoria muestra el aviso amarillo incluso si falta una versión intermedia.
 
     Emisores NDI y estado de las consultas — 26/11/2026
     ☑ Combinar el Finder con el listener de emisores de NDI 6.3 y posteriores. Respetar los grupos, distinguir emisores del mismo nombre y conservar su historial. Verificado con dobles del SDK y pruebas de persistencia.
     ☑ Desactivar Actualizar en NDI y Recargar informe en Actualizaciones durante la consulta. Mostrar el estado de espera y volver a habilitar el botón tras recibir respuesta o agotar el tiempo. Verificado en Chromium.
     ☑ Mantener Consultando… durante al menos un segundo al pulsar Actualizar en NDI. La petición empieza de inmediato y el sondeo automático conserva su temporización. Verificado con una respuesta rápida en Chromium.
+    ☑ Hacer que Actualizar solicite una lectura nueva del Discovery Server desde el CT de Caddy. El sondeo automático conserva su intervalo y comparte el resultado nuevo. Verificado con el Caddyfile generado, pruebas HTTP y Chromium en modo muestra. Pendiente desplegar en Proxmox.
     ☑ Confirmar desde Windows dos fuentes en el Finder y dos conexiones de Test Patterns al Discovery Server. El usuario confirmó que ambos TX aparecen en su panel.
 
     Retirada de entradas NDI y diagnóstico de receptores — 26/11/2026

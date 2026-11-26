@@ -1,9 +1,10 @@
 [Unit]
-Description=Recoger actualizaciones solicitadas desde Servicio de control
+Description=Recoger comprobaciones y actualizaciones solicitadas desde Servicio de control
 
 [Timer]
 OnBootSec=30s
 OnUnitInactiveSec=30s
+AccuracySec=1s
 
 [Install]
 WantedBy=timers.target

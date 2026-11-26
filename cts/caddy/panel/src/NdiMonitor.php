@@ -17,15 +17,17 @@ final class NdiMonitor
         return hash('sha256', json_encode(['history-v3',$settings,self::mock()], JSON_THROW_ON_ERROR));
     }
 
-    public function status(): array
+    public function status(bool $refresh = false): array
     {
         if (!$this->config->get()['ndi']['enabled']) return ['enabled' => false];
-        return $this->store->locked('ndi', function (): array {
+        $requestedAt = $refresh ? microtime(true) : null;
+        return $this->store->locked('ndi', function () use ($requestedAt): array {
             $settings = $this->config->get()['ndi'];
             if (!$settings['enabled']) return ['enabled' => false];
             $key = $this->key($settings);
             $cache = $this->store->read('ndi-cache.json');
-            if (($cache['key'] ?? '') === $key && microtime(true) - ($cache['checked_at'] ?? 0) < $settings['polling_rate']) return $cache['status'];
+            $freshSince = $requestedAt ?? (microtime(true) - $settings['polling_rate']);
+            if (($cache['key'] ?? '') === $key && ($cache['checked_at'] ?? 0) >= $freshSince) return $cache['status'];
             $cancel = fn(): bool => $this->key($this->config->get()['ndi']) !== $key;
             $status = $this->probe($settings, $cancel, ($cache['sequence'] ?? 0) + 1);
             $current = $this->config->get()['ndi'];

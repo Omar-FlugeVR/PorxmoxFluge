@@ -1,5 +1,6 @@
-"""Run one panel update request from the Proxmox host."""
+"""Check versions or apply one update requested from the control panel."""
 
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import tempfile
 import time
 
 from check_updates import accepted_ndi_license, compare_panel, compare_product, github_origin, VERSION
+from panel_release import PANEL_TAG
 from ndi_release import CACHE, installer_digest, read_cached, sdk_files
 from ndi_sdk import installer_header
 
@@ -59,9 +61,15 @@ def valid_request(request, now):
     target = request.get('version')
     job_id = request.get('id')
     created = request.get('created')
+    if not (isinstance(job_id, str) and re.fullmatch(r'[a-f0-9]{32}', job_id)
+            and type(created) is int and 0 <= created <= now):
+        return False
+    if role == 'check':
+        return set(request) == {'role', 'id', 'created'}
+    plan = request.get('planHash')
+    if plan is not None and (role != 'panel' or not isinstance(plan, str) or not re.fullmatch(r'[a-f0-9]{64}', plan)):
+        return False
     return (isinstance(role, str) and role in ROLE_NAMES and isinstance(target, str)
-            and isinstance(job_id, str) and re.fullmatch(r'[a-f0-9]{32}', job_id)
-            and type(created) is int and 0 <= created <= now
             and re.fullmatch({'panel': r'[a-f0-9]{40}', 'ndi': r'SDK 6\.\d+\.\d+'}.get(role, r'\d+\.\d+\.\d+'), target))
 
 
@@ -76,7 +84,49 @@ def verify_target(role):
     ''', 'verify-target', SNAPSHOT, role, capture=True, timeout=30)
 
 
-def update_panel(checkout, ct, target):
+def fetch_panel_step(git, repo, step):
+    tag = step.get('tag')
+    if tag and not PANEL_TAG.fullmatch(tag):
+        raise ValueError('El tag de la versión publicada no es válido.')
+    ref = f'refs/tags/{tag}' if tag else 'HEAD'
+    execute(*git, 'fetch', '--no-tags', f'https://github.com/{repo}.git', ref, timeout=150)
+    fetched = execute(*git, 'rev-parse', 'FETCH_HEAD^{commit}', capture=True, timeout=10)
+    if fetched != step['commit']:
+        raise ValueError('La revisión publicada cambió desde la última comprobación.')
+
+
+def is_ancestor(git, earlier, later):
+    try:
+        execute(*git, 'merge-base', '--is-ancestor', earlier, later, timeout=10)
+    except subprocess.CalledProcessError as error:
+        if error.returncode == 1:
+            return False
+        raise
+    return True
+
+
+def sync_panel(checkout, ct, commit, *, active_checkout=None):
+    options = {'env': dict(os.environ, FLUGE_UPDATES_CHECKOUT=str(active_checkout.resolve()))} if active_checkout else {}
+    execute('bash', checkout / 'sync.sh', '--ct', 'caddy', '--yes', pass_fds=(9,), **options)
+    if read_guest_json(ct, '/opt/fluge-control/revision.json').get('commit') != commit:
+        raise ValueError('La revisión publicada no coincide con la solicitada.')
+
+
+def sync_panel_worktree(git, checkout, ct, commit):
+    with tempfile.TemporaryDirectory(prefix='fluge-panel-step-') as directory:
+        staged = Path(directory) / 'checkout'
+        execute(*git, 'worktree', 'add', '--detach', staged, commit, timeout=45)
+        try:
+            checkout = checkout.resolve()
+            (checkout / '.secrets').mkdir(mode=0o700, exist_ok=True)
+            (staged / '.secrets').symlink_to(checkout / '.secrets', target_is_directory=True)
+            (staged / 'config.env').symlink_to(checkout / 'config.env')
+            sync_panel(staged, ct, commit, active_checkout=checkout)
+        finally:
+            execute(*git, 'worktree', 'remove', '--force', staged, timeout=45)
+
+
+def update_panel(checkout, ct, target, request=None):
     installed = read_guest_json(ct, '/opt/fluge-control/revision.json')
     available = compare_panel(checkout, installed)
     if available['status'] != 'update' or available['latest'] != target:
@@ -84,17 +134,41 @@ def update_panel(checkout, ct, target):
     git = ('git', '-C', checkout)
     if execute(*git, 'status', '--porcelain', capture=True, timeout=10):
         raise ValueError('El repositorio de Proxmox tiene cambios locales.')
+    path = available.get('upgradePath', [])
+    fingerprint = sha256(','.join(step['commit'] for step in path).encode('ascii')).hexdigest() if path else None
+    if (request or {}).get('planHash') != fingerprint:
+        raise ValueError('La ruta de actualización cambió. Vuelve a comprobar las versiones.')
+    steps = path or [{'commit': target, 'tag': available.get('tag')}]
     repo = github_origin(checkout)
-    execute(*git, 'fetch', '--no-tags', f'https://github.com/{repo}.git', 'HEAD', timeout=150)
-    fetched = execute(*git, 'rev-parse', 'FETCH_HEAD', capture=True, timeout=10)
-    if fetched != target:
-        raise ValueError('La rama principal cambió desde la última comprobación.')
-    execute(*git, 'merge', '--ff-only', target, timeout=45)
-    if execute(*git, 'rev-parse', 'HEAD', capture=True, timeout=10) != target:
-        raise ValueError('El checkout de Proxmox está por delante del commit seleccionado.')
-    execute('bash', checkout / 'sync.sh', '--ct', 'caddy', '--yes', pass_fds=(9,))
-    if read_guest_json(ct, '/opt/fluge-control/revision.json').get('commit') != target:
-        raise ValueError('La revisión publicada no coincide con la solicitada.')
+    for step in steps:
+        fetch_panel_step(git, repo, step)
+
+    isolated = False
+    if path or available.get('latestRelease', {}).get('minimum_version'):
+        previous = installed['commit']
+        for step in steps:
+            if not is_ancestor(git, previous, step['commit']):
+                raise ValueError('La ruta de versiones dejó de continuar el historial de esta instalación.')
+            previous = step['commit']
+        head = execute(*git, 'rev-parse', 'HEAD', capture=True, timeout=10)
+        first = steps[0]['commit']
+        if not is_ancestor(git, head, first):
+            isolated = is_ancestor(git, first, head)
+            if not isolated:
+                raise ValueError('El checkout de Proxmox y la ruta de actualización tienen historiales diferentes.')
+
+    for index, step in enumerate(steps, 1):
+        commit = step['commit']
+        if path:
+            message = f'Instalando {step["version"]} ({index} de {len(steps)}).'
+            job_state(ct, {**request, 'message': message}, 'running')
+        if isolated:
+            sync_panel_worktree(git, checkout, ct, commit)
+        else:
+            execute(*git, 'merge', '--ff-only', commit, timeout=45)
+            if execute(*git, 'rev-parse', 'HEAD', capture=True, timeout=10) != commit:
+                raise ValueError('El checkout de Proxmox está por delante del commit seleccionado.')
+            sync_panel(checkout, ct, commit)
 
 
 def update_product(ct, role, version, stage=''):
@@ -136,7 +210,7 @@ def perform(checkout, request):
     role, target = request['role'], request['version']
     ct = verify_target(ROLE_NAMES[role])
     if role == 'panel':
-        update_panel(checkout, ct, target)
+        update_panel(checkout, ct, target, request)
     elif role == 'ndi':
         update_ndi(ct, target.removeprefix('SDK '), request)
     else:
@@ -152,7 +226,7 @@ def main():
     request = read_guest_json(panel_ct, '/var/lib/fluge-control/update-request.json', private=True)
     if not valid_request(request, time.time()):
         return
-    request = {key: request[key] for key in ('id', 'role', 'version', 'created', 'licenseHash') if key in request}
+    request = {key: request[key] for key in ('id', 'role', 'version', 'created', 'licenseHash', 'planHash') if key in request}
     previous = read_guest_json(panel_ct, '/etc/fluge-control/update-job.json')
     if previous.get('id') == request['id']:
         if previous.get('state') == 'running':
@@ -162,15 +236,19 @@ def main():
         return
     job_state(panel_ct, request, 'running')
     result = 'success'
-    try:
-        perform(checkout, request)
-    except Exception as error:
-        print(f'Falló la actualización de {request["role"]}: {error}', file=sys.stderr)
-        result = 'failure'
+    checking = request['role'] == 'check'
+    if not checking:
+        try:
+            perform(checkout, request)
+        except Exception as error:
+            print(f'Falló la actualización de {request["role"]}: {error}', file=sys.stderr)
+            result = 'failure'
     try:
         execute('bash', SNAPSHOT / 'updates.sh', '--scheduled', pass_fds=(9,))
     except subprocess.CalledProcessError as error:
         print(f'No se pudo refrescar el informe: {error}', file=sys.stderr)
+        if checking:
+            result = 'failure'
     job_state(panel_ct, request, result)
 
 

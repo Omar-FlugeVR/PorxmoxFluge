@@ -86,7 +86,7 @@ try {
         if ($method === 'POST') {
             $auth->csrf($_SERVER['HTTP_X_CSRF_TOKEN'] ?? null);
         }
-        if (!in_array($method . ':' . $action, ['GET:data', 'GET:runtime', 'GET:ndi_status', 'POST:logout', 'POST:change_password'], true)) {
+        if (!in_array($method . ':' . $action, ['GET:data', 'GET:runtime', 'GET:ndi_status', 'POST:ndi_refresh', 'POST:logout', 'POST:change_password'], true)) {
             $auth->requireAdmin();
         }
         switch ($method . ':' . $action) {
@@ -100,14 +100,20 @@ try {
             case 'GET:updates':
                 $response = (new UpdateJobs($store))->report();
                 break;
+            case 'POST:check_updates':
+                $response = (new UpdateJobs($store))->enqueueCheck();
+                break;
             case 'POST:update_service':
                 $response = (new UpdateJobs($store))->enqueue($input);
                 break;
             case 'GET:ndi_status':
+            case 'POST:ndi_refresh':
+                session_write_close();
+                $response = (new NdiMonitor($store, $config))->status($action === 'ndi_refresh');
+                break;
             case 'POST:ndi_test':
                 session_write_close();
-                $monitor = new NdiMonitor($store, $config);
-                $response = $method === 'GET' ? $monitor->status() : $monitor->test($input);
+                $response = (new NdiMonitor($store, $config))->test($input);
                 break;
             case 'POST:ndi_clear_log':
                 session_write_close();
