@@ -15,12 +15,13 @@ Los cuatro se crean como **unprivileged**, con `nesting=1` para que systemd pued
 
 Necesitas un Proxmox VE operativo sobre **amd64**, acceso `root`, salida a Internet, al menos un puente Linux y una IP libre fuera del rango DHCP por NIC. Los CTs siempre usan Debian 12, aunque el host use otra versión de Debian. El almacenamiento de plantillas debe admitir `vztmpl` y el de discos, `rootdir`.
 
-En un Proxmox recién instalado, **instala Git antes de ejecutar `git clone`**. Pega el bloque completo en el Shell del nodo como `root`.
+En un Proxmox recién instalado, **instala Git antes de ejecutar `git clone`**. Usa el tag de la última versión publicada en `panel_tag` y ejecuta el bloque en el Shell del nodo como `root`. [Publicaciones de Servicio de control](https://github.com/Omar-FlugeVR/PorxmoxFluge/releases)
 
 ```bash
 apt-get update
+panel_tag=panel-v0.0.5
 apt-get install -y git curl ca-certificates python3 &&
-git clone https://github.com/Omar-FlugeVR/PorxmoxFluge.git fluge-proxmox &&
+git clone --branch "$panel_tag" https://github.com/Omar-FlugeVR/PorxmoxFluge.git fluge-proxmox &&
 cd fluge-proxmox &&
 ./install.sh
 ```
@@ -227,9 +228,9 @@ La pestaña **Actualizaciones** está disponible para administradores. Muestra l
 
 **Actualizar** pide confirmación para la versión mostrada. Proxmox recoge una solicitud a la vez mediante `studio-infra-update-jobs.timer`. La barra de progreso aparece al confirmar y sigue visible durante la cola y la ejecución. El panel vuelve a consultar al recuperarse de una recarga. Instala esta función sincronizando el CT de Caddy una primera vez.
 
-Para publicar **Servicio de control**, sube los cambios a `main` y abre **Actions → Publicar panel → Run workflow** en GitHub. Elige **parche**, **menor** o **mayor**. Marca **Actualización obligatoria** para mostrar el aviso amarillo. Con la casilla desmarcada, la versión se ofrece como opcional en **Actualizaciones**. GitHub ejecuta las pruebas y publica la release con un tag como `panel-v0.0.6`. Si falla después de subir el tag, reintenta esa misma ejecución.
+Para publicar **Servicio de control**, sube los cambios a `main` y abre **Actions → Publicar panel → Run workflow** en GitHub. Elige **parche**, **menor** o **mayor**, y el tipo que se verá junto a la versión. **Conservar** reutiliza el tipo de la última publicación. También puedes elegir **hotfix**, **alpha**, **beta** u **oficial**. Marca **Actualización obligatoria** para mostrar el aviso amarillo. Con la casilla desmarcada, la versión se ofrece como opcional en **Actualizaciones**. GitHub ejecuta las pruebas y publica la release con un tag como `panel-v0.0.6`. Si falla después de subir el tag, reintenta esa misma ejecución.
 
-Para migrar al manifiesto como adjunto de GitHub, publica e instala primero una versión puente con este comprobador y el archivo `panel-version.json` de la raíz. Después de verificar que esa versión está instalada en los nodos que vayan a actualizar por web, retira el archivo en un commit y publica el siguiente parche. El workflow tomará la última release como base, etiquetará el commit probado y adjuntará el JSON en **Assets**. Así se elimina el commit de versión en `main` y el pull adicional en el ordenador de desarrollo. Las releases antiguas conservan el manifiesto en sus tags.
+El workflow toma la última release como base, etiqueta el commit probado y adjunta `panel-version.json` en **Assets**. El tag identifica el código que se instala y el adjunto guarda la versión, la obligatoriedad y el mínimo compatible. Publicar deja `main` en el mismo commit. Las releases antiguas conservan el manifiesto en sus tags.
 
 **Versión mínima compatible** se guarda como `minimum_version` en el manifiesto de la release. Si `2.0.1` exige `1.9.1` y `1.9.1` exige `1.8.0`, un panel en `1.5.0` mostrará la ruta `1.8.0 → 1.9.1 → 2.0.1`. Cada mínimo debe tener su propia release publicada. Una instalación que ya cumple el mínimo puede ir directamente a la última versión. Deja el campo vacío para heredar el mínimo anterior. Escribe `ninguna` cuando la nueva versión pueda actualizar desde las anteriores sin ese paso.
 
@@ -237,17 +238,19 @@ El panel muestra la ruta antes de confirmar. Proxmox verifica todos los commits 
 
 Proxmox ofrece **Actualizar** para la versión publicada, aunque esté marcada como opcional. Lee el manifiesto adjunto y comprueba que indica el commit del tag. En las releases antiguas lo lee del propio commit. Verifica la revisión al descargarla y ejecuta `sync.sh` para Caddy con ese manifiesto. El despliegue valida Caddy y recarga Caddy y PHP-FPM. El inventario, los ajustes y las cuentas permanecen en el estado privado del CT. Si falla la validación o la recarga, se restauran los archivos anteriores.
 
-Sincroniza Caddy una primera vez desde un checkout que contenga el comprobador de releases. Mientras GitHub aún no tenga una release publicada, el comprobador admite el mecanismo anterior basado en `main` y `update_required: true`. La versión instalada se registra al sincronizar Caddy.
+Para pasar desde un panel anterior a `0.0.5`, sincroniza primero el tag puente `panel-v0.0.5`. Esa versión puede leer tanto el manifiesto de las releases antiguas como los adjuntos nuevos. La versión instalada se registra al sincronizar Caddy.
 
-El despliegue desde la terminal sigue disponible. Durante la migración puedes ejecutar como root desde el checkout de Proxmox:
+Para desplegar desde la terminal, elige el tag publicado que quieras instalar y ejecuta como root desde el checkout de Proxmox:
 
 ```bash
-git pull --ff-only
-./sync.sh --ct caddy --check
+panel_tag=panel-v0.0.5
+git fetch origin "refs/tags/$panel_tag:refs/tags/$panel_tag" &&
+git switch --detach "$panel_tag" &&
+./sync.sh --ct caddy --check &&
 ./sync.sh --ct caddy
 ```
 
-Una vez retirado el manifiesto de `main`, sitúa el checkout en el tag publicado que quieras desplegar antes de ejecutar `install.sh` o `sync.sh`. Así el instalador identifica la versión y comprueba el mínimo compatible.
+El instalador identifica la versión a partir del tag y comprueba el mínimo compatible.
 
 | Servicio | Qué muestra y cómo se actualiza |
 |---|---|

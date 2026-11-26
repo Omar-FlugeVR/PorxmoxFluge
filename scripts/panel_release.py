@@ -8,6 +8,7 @@ import re
 
 VERSION_PATTERN = r'[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}'
 PANEL_TAG = re.compile(rf'panel-v({VERSION_PATTERN})')
+RELEASE_TYPES = ('conservar', 'hotfix', 'alpha', 'beta', 'oficial')
 
 
 def version_parts(version):
@@ -36,13 +37,17 @@ def validate_release(data):
     return release
 
 
-def bump_release(data, increment, required, minimum=''):
+def bump_release(data, increment, required, minimum='', *, build_type='conservar'):
     release = validate_release(data)
     parts = [int(part) for part in release['version'].split('.')]
     index = {'mayor': 0, 'menor': 1, 'parche': 2}[increment]
     parts[index] += 1
     parts[index + 1:] = [0] * (2 - index)
     release.update(version='.'.join(map(str, parts)), update_required=required)
+    if build_type not in RELEASE_TYPES:
+        raise ValueError('El tipo de publicación no es válido.')
+    if build_type != 'conservar':
+        release['type'] = build_type
     if minimum == 'ninguna':
         release.pop('minimum_version', None)
     elif minimum:
@@ -55,14 +60,15 @@ if __name__ == '__main__':
     parser.add_argument('increment', choices=('parche', 'menor', 'mayor'))
     parser.add_argument('required', choices=('true', 'false'))
     parser.add_argument('minimum', nargs='?', default='')
-    parser.add_argument('--source', type=Path, default=Path('panel-version.json'))
-    parser.add_argument('--output', type=Path, default=Path('panel-version.json'))
-    parser.add_argument('--commit')
+    parser.add_argument('--source', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--commit', required=True)
+    parser.add_argument('--type', choices=RELEASE_TYPES, default='conservar')
     args = parser.parse_args()
-    release = bump_release(json.loads(args.source.read_text(encoding='utf-8')), args.increment, args.required == 'true', args.minimum.strip())
-    if args.commit is not None:
-        if not re.fullmatch(r'[a-f0-9]{40}', args.commit):
-            parser.error('El commit del manifiesto no es válido.')
-        release['commit'] = args.commit
+    release = bump_release(json.loads(args.source.read_text(encoding='utf-8')), args.increment, args.required == 'true',
+                           args.minimum.strip(), build_type=args.type)
+    if not re.fullmatch(r'[a-f0-9]{40}', args.commit):
+        parser.error('El commit del manifiesto no es válido.')
+    release['commit'] = args.commit
     args.output.write_text(json.dumps(release, indent=2) + '\n', encoding='utf-8')
     print(release['version'])

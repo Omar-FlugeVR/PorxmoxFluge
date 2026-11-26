@@ -227,6 +227,13 @@ class UpdatesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'mínima debe ser anterior'):
             validate_release({**release, 'minimum_version':'0.1.9'})
 
+    def test_publication_type_is_independent_of_version_and_required(self):
+        release = {'version':'0.0.5', 'type':'alpha', 'update_required':True}
+        for selected in ('conservar', 'hotfix', 'alpha', 'beta', 'oficial'):
+            with self.subTest(selected=selected):
+                self.assertEqual(bump_release(release, 'parche', False, build_type=selected),
+                                 {'version':'0.0.6', 'type':'alpha' if selected == 'conservar' else selected, 'update_required':False})
+
     def test_products_compare_stable_versions_and_keep_partial_results(self):
         with patch.object(check_updates, 'stable_version', return_value='v5.10.0') as fetch:
             self.assertEqual(check_updates.compare_product('companion', 'available', '5.9.0+123-stable-abc')['status'], 'update')
