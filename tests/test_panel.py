@@ -926,7 +926,13 @@ class PanelTests(unittest.TestCase):
             subprocess.run([PHP,str(ROOT/'cts/caddy/panel/bin/initialize.php'),directory,'--stdin'],
                 input=json.dumps([seed,config,{'username':'admin','password':'FlugeDemo2026'}]),text=True,capture_output=True,check=True)
             inventory=json.loads((Path(directory)/'inventory.json').read_text(encoding='utf-8'))
-            self.assertEqual(len(inventory['services']),4)
+            self.assertEqual(len(inventory['services']),5)
+            landing = next(item for item in inventory['services'] if item['id'] == 'panel-landing')
+            device = next(item for item in inventory['ips'] if item['id'] == 'panel-landing-device')
+            self.assertEqual((landing['url'], landing['domain'], device['ip']), ('http://192.168.1.12/', '', '192.168.1.12'))
+            export = subprocess.check_output([PHP,str(ROOT/'cts/caddy/panel/bin/export.php')],
+                env=dict(os.environ, FLUGE_STATE_DIR=directory), text=True)
+            self.assertEqual(len(json.loads(export)), 4)
             self.assertEqual(inventory['revision'],1)
             auth=json.loads((Path(directory)/'auth.json').read_text(encoding='utf-8'))
             self.assertEqual(auth['username'],'admin')

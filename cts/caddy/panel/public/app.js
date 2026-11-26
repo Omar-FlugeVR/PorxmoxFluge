@@ -10,6 +10,7 @@ const uid = prefix => `${prefix}-${crypto.randomUUID?.() || Math.random().toStri
 let session, inventory, runtime, config, scannerConfig, users;
 let view = 'services', selected = new Set(), editorState, categoryDeletion, busy = false;
 let scanResults = [], scanFilter = 'alive', scanPage = 0, scanRangeLabel = '', allNetworksRange = '', scanning = false;
+const scanLockedActions = '#addButton, [data-edit], [data-host], [data-host-service], [data-delete-ip], [data-discovered], [data-sync-host]';
 const runner = new ScanRunner(request);
 const admin = () => session?.role === 'admin';
 const ndiModule = new NdiModule({request:(path,options={})=>request('',{...options,path}),save:settings=>saveConfig({ndi:settings}),feedback,
@@ -42,6 +43,9 @@ function feedback(message, type = '') {
 }
 function guard(fn) { return async event => { try { await fn(event); } catch (error) { feedback(error.message, 'error'); } }; }
 function hosts() { return mergeHosts(inventory.services, inventory.ips); }
+function updateScanActions(container = document) {
+  container.querySelectorAll(scanLockedActions).forEach(button => { button.disabled = scanning; });
+}
 function hostServiceAction(host) {
   const label = host.linkedServices.length ? 'Editar servicio' : 'Añadir servicio';
   return `<button class="edit-button" data-host-service="${esc(host.ip)}">${label}</button>`;
@@ -175,11 +179,12 @@ async function refreshUpdates() {
     }
     $('updatesRows').innerHTML = Object.entries(updateServices).map(([role, name]) => {
       const entry = services?.[role] || {};
-      const available = !updateBusy && validDate && !stale && entry.status === 'update' && entry.canUpdate;
+      const available = validDate && !stale && entry.status === 'update' && entry.canUpdate;
+      const action = available ? `<button type="button" class="secondary" data-update-role="${role}" ${updateBusy ? 'disabled' : ''}>Actualizar</button>` : '';
       const status = role === 'panel' && required && entry.status === 'update' ? 'Actualización requerida' : updateStates[entry.status] || 'Pendiente';
       const route = entry.upgradePath?.map(step => step.version).join(' → ');
       const detail = route || entry.compatibility;
-      return `<tr><td><strong>${name}</strong></td><td><code>${esc(updateVersion(role, entry, 'installed'))}</code>${entry.dirty ? '<p class="hint">Con cambios locales</p>' : ''}</td><td><code>${esc(updateVersion(role, entry, 'latest'))}</code></td><td class="${entry.status === 'update' ? 'sync-status' : 'muted'}">${esc(status)}${detail ? `<p class="hint">${esc(detail)}</p>` : ''}</td><td><button type="button" class="secondary" data-update-role="${role}" ${available ? '' : 'disabled'}>Actualizar</button></td></tr>`;
+      return `<tr><td><strong>${name}</strong></td><td><code>${esc(updateVersion(role, entry, 'installed'))}</code>${entry.dirty ? '<p class="hint">Con cambios locales</p>' : ''}</td><td><code>${esc(updateVersion(role, entry, 'latest'))}</code></td><td class="${entry.status === 'update' ? 'sync-status' : 'muted'}">${esc(status)}${detail ? `<p class="hint">${esc(detail)}</p>` : ''}</td><td>${action}</td></tr>`;
     }).join('');
   } catch (error) {
     if (generation === updateGeneration) {
@@ -264,10 +269,12 @@ function renderDirectory() {
   $('empty').hidden = list.length > 0;
   if (view === 'devices') {
     $('deviceTable').innerHTML = `<table><thead><tr><th>Dirección IP</th><th>Equipo</th><th>Categoría</th><th>Datos adicionales</th><th>Acciones</th></tr></thead><tbody>${list.map(host => `<tr><td><code>${esc(host.ip)}</code>${host.mac ? `<p class="hint">${esc(host.mac)}</p>` : ''}</td><td><strong>${esc(host.hostname)}</strong><p class="hint">${host.linkedServices.length} servicios</p></td><td>${esc(host.tag)}</td><td class="notes">${esc(host.notes)}${host.sshEnabled ? `<p class="hint"><button class="text-button" data-copy="ssh ${esc(host.sshUser || 'root')}@${esc(host.ip)}">Copiar SSH</button></p>` : ''}</td><td><div class="cell-actions"><button class="edit-button" data-copy="${esc(host.ip)}">Copiar IP</button>${admin() ? `<button class="edit-button" data-host="${esc(host.ip)}">Editar</button>${hostServiceAction(host)}${!host.isFromService ? `<button class="edit-button danger-text" data-delete-ip="${esc(host.id)}">Eliminar</button>` : ''}` : ''}</div></td></tr>`).join('')}</tbody></table>`;
+    updateScanActions($('deviceTable'));
     return;
   }
   const groups = new Map(); for (const item of list) { if (!groups.has(item.category)) groups.set(item.category, []); groups.get(item.category).push(item); }
   $('serviceGrid').innerHTML = [...groups].map(([category, items]) => `<section class="group ${items.length > 1 ? 'wide' : ''}"><h2 class="group-heading">${esc(category)} <span>${items.length}</span></h2><div class="cards">${items.map(serviceCard).join('')}</div></section>`).join('');
+  updateScanActions($('serviceGrid'));
 }
 function serviceCard(item) {
   const dns = item.proxyMode === 'dns_only';
@@ -494,10 +501,11 @@ async function scan() {
   const ips = validateScanRange($('scanRange').value.trim(), scannerConfig);
   scanRangeLabel = $('scanRange').value.trim();
   scanResults = []; scanPage = 0; scanning = true;
-  $('startScan').hidden = true; $('stopScan').hidden = false; $('scanProgress').hidden = false; $('scanProgress').value = 0; $('scanRange').disabled = true; feedback('');
-  $('scanSummary').textContent = `0 de ${ips.length} direcciones`;
-  renderScan();
   try {
+    updateScanActions();
+    $('startScan').hidden = true; $('stopScan').hidden = false; $('scanProgress').hidden = false; $('scanProgress').value = 0; $('scanRange').disabled = true; feedback('');
+    $('scanSummary').textContent = `0 de ${ips.length} direcciones`;
+    renderScan();
     const result = await runner.run(ips, {onChunk(items) {scanResults.push(...items.filter(item => typeof item.isAlive === 'boolean')); renderScan();}, onProgress(completed,total) {$('scanSummary').textContent = `${completed} de ${total} direcciones`; $('scanProgress').value = completed / total * 100;}});
     const alive = scanResults.filter(item => item.isAlive === true).length;
     const unanswered = scanResults.filter(item => item.isAlive === false).length;
@@ -505,7 +513,11 @@ async function scan() {
   } catch (error) {
     $('scanSummary').textContent = `Escaneo interrumpido · ${scanResults.length} de ${ips.length} comprobadas`;
     throw error;
-  } finally { scanning = false; $('startScan').hidden = false; $('stopScan').hidden = true; $('scanRange').disabled = false; renderScan(); }
+  } finally {
+    scanning = false;
+    $('startScan').hidden = false; $('stopScan').hidden = true; $('scanRange').disabled = false;
+    updateScanActions(); renderScan();
+  }
 }
 function renderScan() {
   const known = new Map(hosts().map(h => [h.ip,h]));
@@ -526,6 +538,7 @@ function renderScan() {
     const host = known.get(item.ip); const dynamic = isIpInConfiguredDhcpRange(item.ip,scannerConfig);
     return `<tr><td><span class="state ${item.isAlive ? '' : 'offline'}">${item.isAlive ? 'Activo' : 'Sin respuesta'}</span></td><td><code>${esc(item.ip)}</code><p class="hint">${esc(item.mac)}</p></td><td>${esc(host?.hostname || item.hostname || 'Equipo sin nombre')}${dynamic ? '<p><span class="tag warn">Rango DHCP</span></p>' : ''}</td><td>${item.ports.map(p=>`<span class="tag">${p === 8000 ? 'Companion · ' : p === 8006 ? 'PVE · ' : p === 5959 ? 'NDI · ' : ''}${p}</span>`).join('') || '—'}</td><td><div class="cell-actions">${host ? `<span class="state">Registrado</span><button class="edit-button" data-sync-host="${esc(item.ip)}">Actualizar</button>${hostServiceAction(host)}` : item.isAlive && !dynamic ? `<button class="secondary" data-discovered="${esc(item.ip)}">Registrar equipo</button>` : dynamic ? '<span class="hint">Asignar IP fija antes de registrar</span>' : ''}</div></td></tr>`;
   }).join('') || `<tr><td colspan="5" class="empty">${scanning ? 'Buscando equipos…' : scanResults.length ? 'No hay equipos con este filtro.' : 'Selecciona un rango e inicia el escaneo.'}</td></tr>`}</tbody></table>`;
+  updateScanActions($('scanTable'));
   $('scanPagination').innerHTML = list.length > 100 ? `<button class="secondary" data-page="-1" ${scanPage === 0 ? 'disabled' : ''}>Anterior</button><span>${scanPage+1} / ${pages}</span><button class="secondary" data-page="1" ${scanPage === pages-1 ? 'disabled' : ''}>Siguiente</button>` : '';
 }
 async function showApplied() {
@@ -562,6 +575,7 @@ document.addEventListener('click', guard(async event => {
     event.preventDefault(); feedback(`Este acceso abriría ${link.href}. En la muestra no se conecta con equipos de tu red.`); return;
   }
   const button = event.target.closest('button'); if (!button) return;
+  if (scanning && button.matches(scanLockedActions)) return;
   const d = button.dataset;
   if ('close' in d) button.closest('dialog').close();
   else if (d.view) switchView(d.view);
@@ -662,7 +676,7 @@ $('logout').onclick = guard(async()=>{
 });
 $('settingsButton').onclick = ()=>switchView('settings');
 $('checkUpdates').onclick = searchUpdates;
-$('addButton').onclick = ()=>openEditor(view === 'devices' ? 'device' : 'service');
+$('addButton').onclick = ()=>{ if (!scanning) openEditor(view === 'devices' ? 'device' : 'service'); };
 $('search').addEventListener('input',renderDirectory);
 $('editorForm').addEventListener('submit',submitEditor);
 $('categoryDeleteForm').addEventListener('submit',deleteCategory);

@@ -144,7 +144,7 @@ La suite Python incluye validaciones, permisos, persistencia, caché y desactiva
 
 ## Estado y sincronización
 
-`services.json` proporciona la semilla de la primera instalación. Después, el inventario operativo está en `/var/lib/fluge-control/inventory.json`; `sync.sh` lo exporta desde el CT y conserva las ediciones de la web. Volver a instalar el código no reemplaza ese archivo, los usuarios ni las credenciales existentes. El plan DNS aplicado por el host transfiere la propiedad de sus reglas al panel para que puedan actualizarse o retirarse desde la web.
+`services.json` proporciona la semilla de la primera instalación. El instalador añade **Servicio de control** como equipo y como acceso web directo a la IP de Caddy. Después, el inventario operativo está en `/var/lib/fluge-control/inventory.json`. `sync.sh` exporta sus reglas desde el CT y conserva las ediciones de la web. Volver a instalar el código conserva el archivo, los usuarios y las credenciales existentes. El plan DNS aplicado por el host transfiere la propiedad de sus reglas al panel para que puedan actualizarse o retirarse desde la web.
 
 | Ruta en el CT | Contenido |
 | --- | --- |

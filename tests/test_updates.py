@@ -1,6 +1,8 @@
 import contextlib
 from hashlib import sha256
 import io
+import json
+import tempfile
 from pathlib import Path
 import subprocess
 import sys
@@ -66,13 +68,48 @@ class UpdatesTests(unittest.TestCase):
     def test_panel_deploys_the_verified_release_tag(self):
         deployed, published = 'a' * 40, 'b' * 40
         with (patch.object(run_updates, 'read_guest_json', side_effect=[{'commit':deployed}, {'commit':published}]),
-              patch.object(run_updates, 'compare_panel', return_value={'latest':published, 'tag':'panel-v0.0.3', 'status':'update'}),
+              patch.object(run_updates, 'compare_panel', return_value={'latest':published, 'tag':'panel-v0.0.3', 'status':'update',
+                  'latestRelease':{'version':'0.0.3', 'type':'alpha', 'update_required':False}}),
               patch.object(run_updates, 'github_origin', return_value='example/panel'),
               patch.object(run_updates, 'execute', side_effect=['', None, published, None, published, None]) as execute):
             run_updates.update_panel(Path('.'), '111', published)
             self.assertEqual(execute.call_args_list[1].args[-1], 'refs/tags/panel-v0.0.3')
             self.assertEqual(execute.call_args_list[2].args[-1], 'FETCH_HEAD^{commit}')
             self.assertEqual(execute.call_args_list[-1].args, ('bash', Path('sync.sh'), '--ct', 'caddy', '--yes'))
+            supplied = json.loads(execute.call_args_list[-1].kwargs['env']['FLUGE_PANEL_RELEASE'])
+            self.assertEqual(supplied['commit'], published)
+            self.assertEqual(supplied['release']['version'], '0.0.3')
+
+    def test_panel_reads_attached_manifest_pinned_to_tag(self):
+        installed, published = 'a' * 40, 'b' * 40
+        release = {'version':'0.0.6', 'type':'alpha', 'update_required':False}
+        publication = {'tag_name':'panel-v0.0.6', 'assets':[{'name':'panel-version.json', 'state':'uploaded'}]}
+        with (patch.object(check_updates, 'github_origin', return_value='example/panel'),
+              patch.object(check_updates, 'get_json') as fetch):
+            fetch.side_effect = [publication, {'sha':published}, {**release, 'commit':published}, {'status':'ahead'}]
+            report = check_updates.compare_panel('.', {'commit':installed})
+            self.assertEqual(report['status'], 'update')
+            self.assertEqual(report['latestRelease'], release)
+            self.assertEqual(fetch.call_args_list[2].args[0],
+                             'https://github.com/example/panel/releases/download/panel-v0.0.6/panel-version.json')
+            fetch.side_effect = [publication, {'sha':published}, {**release, 'commit':installed}]
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(check_updates.compare_panel('.', {'commit':installed})['status'], 'unknown_remote')
+
+    def test_deployment_resolves_published_or_supplied_manifest_without_repository_file(self):
+        commit = 'a' * 40
+        release = {'version':'0.0.6', 'type':'alpha', 'update_required':False}
+        publication = {'tag_name':'panel-v0.0.6', 'assets':[{'name':'panel-version.json', 'state':'uploaded'}]}
+        with (tempfile.TemporaryDirectory() as checkout,
+              patch.object(check_updates, 'github_origin', return_value='example/panel'),
+              patch.object(check_updates.subprocess, 'check_output', return_value='panel-v0.0.6\n'),
+              patch.object(check_updates, 'get_json') as fetch):
+            self.assertEqual(check_updates.deployment_release(checkout, commit, {'commit':commit, 'release':release}), release)
+            fetch.assert_not_called()
+            fetch.side_effect = [publication, {'sha':commit}, {**release, 'commit':commit}]
+            self.assertEqual(check_updates.deployment_release(checkout, commit), release)
+            with self.assertRaisesRegex(ValueError, 'checkout'):
+                check_updates.deployment_release(checkout, commit, {'commit':'b' * 40, 'release':release})
 
     def test_panel_compares_deployed_revision_to_published_release(self):
         deployed, published = 'a' * 40, 'b' * 40

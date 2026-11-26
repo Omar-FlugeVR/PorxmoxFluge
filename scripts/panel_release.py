@@ -55,8 +55,14 @@ if __name__ == '__main__':
     parser.add_argument('increment', choices=('parche', 'menor', 'mayor'))
     parser.add_argument('required', choices=('true', 'false'))
     parser.add_argument('minimum', nargs='?', default='')
+    parser.add_argument('--source', type=Path, default=Path('panel-version.json'))
+    parser.add_argument('--output', type=Path, default=Path('panel-version.json'))
+    parser.add_argument('--commit')
     args = parser.parse_args()
-    path = Path('panel-version.json')
-    release = bump_release(json.loads(path.read_text(encoding='utf-8')), args.increment, args.required == 'true', args.minimum.strip())
-    path.write_text(json.dumps(release, indent=2) + '\n', encoding='utf-8')
+    release = bump_release(json.loads(args.source.read_text(encoding='utf-8')), args.increment, args.required == 'true', args.minimum.strip())
+    if args.commit is not None:
+        if not re.fullmatch(r'[a-f0-9]{40}', args.commit):
+            parser.error('El commit del manifiesto no es válido.')
+        release['commit'] = args.commit
+    args.output.write_text(json.dumps(release, indent=2) + '\n', encoding='utf-8')
     print(release['version'])

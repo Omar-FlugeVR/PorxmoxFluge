@@ -25,12 +25,16 @@
 .ndi-toolbar input { margin-top: 10px; }
 #ndiResultsCount { padding-bottom: 14px; white-space: nowrap; font-size: 14px; }
 .ndi-also { display: block; margin: 6px 0 0; }
-.ndi-role { color: var(--mint); font-size: 14px; }
+.ndi-role { font-size: 14px; }
+.ndi-role.sender { color: #91c3fa; }
+.ndi-role.receiver { color: #91dca0; }
 .ndi-availability { font-size: 14px; white-space: nowrap; }
 .ndi-availability.available { color: var(--mint); }
 .ndi-availability.absent { color: var(--warning); }
 .ndi-availability.unknown { color: var(--muted); }
 .ndi-forget { display: block; margin-top: 4px; }
+.ndi-forget:is(:hover, :focus-visible) { color: #ffa69a; text-decoration: underline; }
+.ndi-forget:focus-visible { outline-color: currentColor; }
 #ndiSources time { font-size: 14px; }
 .ndi-log-panel { margin-top: 26px; }
 .ndi-log-heading { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: baseline; }

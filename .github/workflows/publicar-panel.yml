@@ -34,7 +34,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -46,8 +46,38 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          version="$(python3 scripts/panel_release.py "$INCREMENTO" "$OBLIGATORIA" "$MINIMA")"
-          minimum="$(python3 -c 'import json; print(json.load(open("panel-version.json")).get("minimum_version", ""))')"
+          manifest=panel-version.json
+          assets=()
+          if [[ -f "$manifest" ]]; then
+            # La publicación puente conserva el manifiesto en Git para los paneles antiguos.
+            version="$(python3 scripts/panel_release.py "$INCREMENTO" "$OBLIGATORIA" "$MINIMA")"
+          else
+            temporary="$(mktemp -d)"
+            trap 'rm -rf -- "$temporary"' EXIT
+            base_commit="$(PYTHONPATH=scripts python3 - "$temporary/base.json" <<'PY'
+          import json, sys
+          from pathlib import Path
+          from check_updates import github_origin, panel_publication, panel_revision
+
+          repo = github_origin('.')
+          publication = panel_publication(repo) if repo else None
+          if not publication:
+              raise SystemExit('Publica primero la versión puente.')
+          commit, release = panel_revision(repo, publication['tag_name'], publication)
+          Path(sys.argv[1]).write_text(json.dumps(release), encoding='utf-8')
+          print(commit)
+          PY
+          )"
+            if [[ "$base_commit" == "$GITHUB_SHA" ]]; then
+              printf 'Este commit ya tiene una versión publicada.\n'
+              exit 0
+            fi
+            manifest="$temporary/panel-version.json"
+            version="$(python3 scripts/panel_release.py "$INCREMENTO" "$OBLIGATORIA" "$MINIMA" \
+              --source "$temporary/base.json" --output "$manifest" --commit "$GITHUB_SHA")"
+            assets=("$manifest")
+          fi
+          minimum="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("minimum_version", ""))' "$manifest")"
           if [[ -n "$minimum" ]]; then
             minimum_tag="panel-v${minimum}"
             published="$(gh release view "$minimum_tag" --json tagName,isDraft,isPrerelease --jq 'select(.isDraft == false and .isPrerelease == false) | .tagName')"
@@ -65,17 +95,29 @@ jobs:
           if git show-ref --verify --quiet "$tag_ref"; then
             # Reutilizar el commit y tag si el intento previo se quedó en la publicación.
             commit="$(git rev-parse "${tag_ref}^{commit}")"
-            test "$(git rev-parse "${commit}^")" = "$GITHUB_SHA"
-            git diff --quiet "$commit" -- panel-version.json
-            git diff --quiet "$GITHUB_SHA" "$commit" -- . ':!panel-version.json'
-          else
+            if [[ "$manifest" == panel-version.json ]]; then
+              test "$(git rev-parse "${commit}^")" = "$GITHUB_SHA"
+              git diff --quiet "$commit" -- panel-version.json
+              git diff --quiet "$GITHUB_SHA" "$commit" -- . ':!panel-version.json'
+            else
+              test "$commit" = "$GITHUB_SHA"
+            fi
+          elif [[ "$manifest" == panel-version.json ]]; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add panel-version.json
             git commit -m "Publicar panel ${version}"
             git tag "$tag"
             git push --atomic origin HEAD:refs/heads/main "$tag_ref"
+          else
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "$tag_ref"
           fi
-          if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --verify-tag --latest --title "Servicio de control ${version}" --notes "Versión ${version} del Servicio de control."
+          if draft="$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null)"; then
+            if [[ "$draft" == true ]]; then
+              if [[ "$manifest" != panel-version.json ]]; then gh release upload "$tag" "$manifest" --clobber; fi
+              gh release edit "$tag" --draft=false --latest
+            fi
+          else
+            gh release create "$tag" "${assets[@]}" --verify-tag --latest --title "Servicio de control ${version}" --notes "Versión ${version} del Servicio de control."
           fi

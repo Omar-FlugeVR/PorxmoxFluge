@@ -105,14 +105,18 @@ def is_ancestor(git, earlier, later):
     return True
 
 
-def sync_panel(checkout, ct, commit, *, active_checkout=None):
-    options = {'env': dict(os.environ, FLUGE_UPDATES_CHECKOUT=str(active_checkout.resolve()))} if active_checkout else {}
-    execute('bash', checkout / 'sync.sh', '--ct', 'caddy', '--yes', pass_fds=(9,), **options)
+def sync_panel(checkout, ct, commit, *, active_checkout=None, release=None):
+    env = dict(os.environ)
+    if active_checkout:
+        env['FLUGE_UPDATES_CHECKOUT'] = str(active_checkout.resolve())
+    if release is not None:
+        env['FLUGE_PANEL_RELEASE'] = json.dumps({'commit': commit, 'release': release})
+    execute('bash', checkout / 'sync.sh', '--ct', 'caddy', '--yes', pass_fds=(9,), env=env)
     if read_guest_json(ct, '/opt/fluge-control/revision.json').get('commit') != commit:
         raise ValueError('La revisión publicada no coincide con la solicitada.')
 
 
-def sync_panel_worktree(git, checkout, ct, commit):
+def sync_panel_worktree(git, checkout, ct, commit, release=None):
     with tempfile.TemporaryDirectory(prefix='fluge-panel-step-') as directory:
         staged = Path(directory) / 'checkout'
         execute(*git, 'worktree', 'add', '--detach', staged, commit, timeout=45)
@@ -121,7 +125,7 @@ def sync_panel_worktree(git, checkout, ct, commit):
             (checkout / '.secrets').mkdir(mode=0o700, exist_ok=True)
             (staged / '.secrets').symlink_to(checkout / '.secrets', target_is_directory=True)
             (staged / 'config.env').symlink_to(checkout / 'config.env')
-            sync_panel(staged, ct, commit, active_checkout=checkout)
+            sync_panel(staged, ct, commit, active_checkout=checkout, release=release)
         finally:
             execute(*git, 'worktree', 'remove', '--force', staged, timeout=45)
 
@@ -138,7 +142,7 @@ def update_panel(checkout, ct, target, request=None):
     fingerprint = sha256(','.join(step['commit'] for step in path).encode('ascii')).hexdigest() if path else None
     if (request or {}).get('planHash') != fingerprint:
         raise ValueError('La ruta de actualización cambió. Vuelve a comprobar las versiones.')
-    steps = path or [{'commit': target, 'tag': available.get('tag')}]
+    steps = path or [{'commit': target, 'tag': available.get('tag'), 'release': available.get('latestRelease')}]
     repo = github_origin(checkout)
     for step in steps:
         fetch_panel_step(git, repo, step)
@@ -163,12 +167,12 @@ def update_panel(checkout, ct, target, request=None):
             message = f'Instalando {step["version"]} ({index} de {len(steps)}).'
             job_state(ct, {**request, 'message': message}, 'running')
         if isolated:
-            sync_panel_worktree(git, checkout, ct, commit)
+            sync_panel_worktree(git, checkout, ct, commit, release=step.get('release'))
         else:
             execute(*git, 'merge', '--ff-only', commit, timeout=45)
             if execute(*git, 'rev-parse', 'HEAD', capture=True, timeout=10) != commit:
                 raise ValueError('El checkout de Proxmox está por delante del commit seleccionado.')
-            sync_panel(checkout, ct, commit)
+            sync_panel(checkout, ct, commit, release=step.get('release'))
 
 
 def update_product(ct, role, version, stage=''):

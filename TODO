@@ -205,6 +205,7 @@ Codex:
     ☑ Simplificar el README a un solo bloque de instalación. Retirar la sesión temporal manual al comprobar que install.sh se ejecuta en un proceso propio y que apt-get y git clone se lanzan desde el Shell del nodo antes del asistente.
     ☑ Destacar la instalación de Git en Proxmox limpio y encadenar el clon y el asistente tras la instalación correcta de las herramientas.
     ☑ Corregir SC2119 en install.sh y sync.sh pasando a require_proxmox el tiempo de espera explícito de cero segundos. Reproducido con ShellCheck 0.9.0. Pasaron localmente el análisis de los scripts del workflow y ambas pruebas Bash. Pendiente la siguiente ejecución en GitHub.
+    ☑ Actualizar actions/checkout a v5 en Validar instalador y Publicar panel para usar Node.js 24. Validar ambos YAML y contrastar el runtime con la definición oficial de la acción. Pendiente la siguiente ejecución en GitHub.
 
     Salida a Internet de la VM recién instalada — 26/11/2026
     ☑ Localizar en el registro los tiempos de espera TCP hacia los repositorios Debian y Proxmox antes de instalar Git. Confirmar desde Windows que los repositorios públicos de Debian responden y que la VM está en el Default Switch, cuya interfaz del host usa 172.19.160.1/20. Pendiente comprobar la ruta de salida dentro de la VM.
@@ -223,6 +224,9 @@ Codex:
     ☑ Añadir Versión mínima compatible al workflow y al manifiesto. Heredar el requisito por defecto y exigir una release intermedia publicada en el historial de main.
     ☑ Mostrar y confirmar la ruta completa del panel, verificar los commits antes de aplicar el primer paso y detener la cadena ante un fallo. El despliegue manual comprueba el mínimo. Verificado localmente con dobles de GitHub y Proxmox, un checkout temporal de Git, pruebas HTTP y Chromium. Pendiente validar una cadena en la VM.
     ☑ Aclarar la casilla Actualización obligatoria del workflow. Verificar en Chromium que una versión opcional figura en Actualizaciones sin aviso general y que una obligatoria muestra el aviso amarillo incluso si falta una versión intermedia.
+    ☑ Ocultar Actualizar cuando el servicio está al día o carece de una actualización instalable. Limitar el estilo de la barra de progreso a las operaciones activas y comprobar en Chromium que deja de ocupar espacio al completar una búsqueda o actualización.
+    ☑ Preparar la versión puente para leer el manifiesto desde el adjunto de la release o desde el commit de las publicaciones antiguas. Verificar el commit del adjunto y pasar sus datos a la instalación y a cada paso de compatibilidad. Confirmar la lectura de la 0.0.4 real y probar localmente un despliegue sin el archivo en el checkout.
+    ☑ Preparar el workflow para publicar el manifiesto como adjunto al retirar panel-version.json de main. Simular la publicación puente, la publicación con adjunto y el reintento de un borrador en un remoto Git local. Pendientes instalar la versión puente en la VM, retirar el archivo y realizar la primera publicación con adjunto en GitHub.
 
     Emisores NDI y estado de las consultas — 26/11/2026
     ☑ Combinar el Finder con el listener de emisores de NDI 6.3 y posteriores. Respetar los grupos, distinguir emisores del mismo nombre y conservar su historial. Verificado con dobles del SDK y pruebas de persistencia.
@@ -230,7 +234,13 @@ Codex:
     ☑ Mantener Consultando… durante al menos un segundo al pulsar Actualizar en NDI. La petición empieza de inmediato y el sondeo automático conserva su temporización. Verificado con una respuesta rápida en Chromium.
     ☑ Hacer que Actualizar solicite una lectura nueva del Discovery Server desde el CT de Caddy. El sondeo automático conserva su intervalo y comparte el resultado nuevo. Verificado con el Caddyfile generado, pruebas HTTP y Chromium en modo muestra. Pendiente desplegar en Proxmox.
     ☑ Confirmar desde Windows dos fuentes en el Finder y dos conexiones de Test Patterns al Discovery Server. El usuario confirmó que ambos TX aparecen en su panel.
+    ☑ Mostrar Emisor en azul y Receptor en verde en el listado NDI. Verificado en Chromium.
 
     Retirada de entradas NDI y diagnóstico de receptores — 26/11/2026
     ☑ Añadir Eliminar para administradores en las entradas No visible. Conservar el registro de actividad y las demás entradas. Verificar en HTTP y Chromium la confirmación, la persistencia, los permisos, el rechazo si el equipo reaparece y su alta cuando vuelve a anunciarse.
+    ☑ Destacar Eliminar en rojo coral al pasar el cursor o enfocar con el teclado. Verificado en Chromium que se distingue del turquesa de Disponible.
     ☑ Consultar el Discovery Server real desde Windows con el SDK 6.2.1. El listener se conectó y devolvió cero RX anunciados; el Finder mostró dos TX. Mostrar en el panel cómo habilitar el anuncio de RX en NDI Studio Monitor y verificar con un doble del SDK que dos RX con UUID distintos aparecen aunque compartan nombre y dirección. Pendiente validar los RX reales una vez anunciados.
+
+    Acciones durante el escaneo y alta inicial del panel — 26/11/2026
+    ☑ Desactivar registrar, añadir, editar, actualizar la ficha y eliminar durante el escaneo. Comprobar en Chromium el bloqueo mientras llegan resultados parciales, al cambiar a Equipos o Servicios y su retirada al terminar.
+    ☑ Sembrar Servicio de control como equipo y servicio con la IP configurada de Caddy en instalaciones nuevas. Verificado con una red personalizada y con la inicialización PHP del instalador. El acceso directo queda fuera de la exportación de redirecciones.

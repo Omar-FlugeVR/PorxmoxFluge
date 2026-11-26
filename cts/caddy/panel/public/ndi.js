@@ -163,11 +163,12 @@ export class NdiModule {
     $('ndiResultsCount').textContent = `${sources.length} de ${entities.length} registros`;
     $('ndiSources').innerHTML = `<table><thead><tr><th>Equipo / Host</th><th>Función</th><th>Fuente / Entrada</th><th>Dirección NDI</th><th>Disponibilidad</th><th>Última vez visto</th></tr></thead><tbody>${sources.map(source => {
       const available = this.data.stale ? null : source.available;
-      const role = source.direction==='receiver'?'Receptor':'Emisor';
+      const isReceiver = source.direction === 'receiver';
+      const role = isReceiver ? 'Receptor' : 'Emisor';
       const forget = available === false && this.canManage() && this.data.history_scope
         ? `<button type="button" class="edit-button danger-text ndi-forget" data-ndi-forget="${esc(source.id)}" aria-label="Eliminar ${esc(source.full_name)} del listado NDI" ${this.historyBusy ? 'disabled' : ''}>Eliminar</button>`
         : '';
-      return `<tr data-ndi-entity="${esc(source.id)}"><td data-label="Equipo / Host"><strong>${esc(source.host)}</strong></td><td data-label="Función"><span class="ndi-role">${role}</span>${source.device_role==='both'?`<span class="hint ndi-also">También ${source.direction==='receiver'?'emite':'recibe'}</span>`:''}</td><td data-label="Fuente / Entrada">${esc(source.stream || source.full_name)}</td><td data-label="Dirección NDI"><code>${esc(source.url || '—')}</code></td><td data-label="Disponibilidad"><span class="ndi-availability ${available===true?'available':available===false?'absent':'unknown'}">${available===true?'Disponible':available===false?'No visible':'Sin comprobar'}</span>${forget}</td><td data-label="Última vez visto"><time datetime="${esc(source.last_seen)}">${esc(date(source.last_seen))}</time></td></tr>`;
+      return `<tr data-ndi-entity="${esc(source.id)}"><td data-label="Equipo / Host"><strong>${esc(source.host)}</strong></td><td data-label="Función"><span class="ndi-role ${isReceiver ? 'receiver' : 'sender'}">${role}</span>${source.device_role==='both'?`<span class="hint ndi-also">También ${isReceiver?'emite':'recibe'}</span>`:''}</td><td data-label="Fuente / Entrada">${esc(source.stream || source.full_name)}</td><td data-label="Dirección NDI"><code>${esc(source.url || '—')}</code></td><td data-label="Disponibilidad"><span class="ndi-availability ${available===true?'available':available===false?'absent':'unknown'}">${available===true?'Disponible':available===false?'No visible':'Sin comprobar'}</span>${forget}</td><td data-label="Última vez visto"><time datetime="${esc(source.last_seen)}">${esc(date(source.last_seen))}</time></td></tr>`;
     }).join('') || `<tr><td colspan="6" class="empty">${query || this.direction!=='all' ? 'No hay equipos con este filtro.' : this.data ? 'Todavía no hay equipos NDI registrados en este monitor.' : 'Consultando equipos NDI…'}</td></tr>`}</tbody></table>`;
   }
 

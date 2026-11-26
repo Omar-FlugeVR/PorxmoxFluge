@@ -62,6 +62,11 @@ class InventoryTests(unittest.TestCase):
             {"domain": "*.estudio.lan", "answer": "10.23.0.12", "enabled": True},
             {"domain": "ndi.estudio.lan", "answer": "10.23.0.16", "enabled": True},
         ])
+        seed = load_module("seed_generator", ROOT / "cts/caddy/generate-seed.py").render(self.cfg, services)
+        landing = next(item for item in seed["services"] if item["id"] == "panel-landing")
+        self.assertEqual((landing["url"], landing["domain"]), ("http://10.23.0.12/", ""))
+        self.assertEqual(seed["ips"][0]["ip"], "10.23.0.12")
+        self.assertEqual(seed["ips"][0]["tag"], landing["category"])
 
     def test_untrusted_text_is_escaped_and_dns_card_has_no_http_link(self):
         self.data[0]["name"] = '<script>alert("x")</script>'

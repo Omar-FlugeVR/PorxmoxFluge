@@ -8,6 +8,7 @@ import subprocess
 import sys
 import os
 import tarfile
+from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
@@ -39,28 +40,70 @@ def github_origin(checkout):
     return match[1] if match else None
 
 
-def panel_release_tag(repo):
+def panel_publication(repo, tag=None):
     try:
-        published = get_json(f'{GITHUB_API}{repo}/releases/latest')
+        endpoint = f'tags/{tag}' if tag else 'latest'
+        published = get_json(f'{GITHUB_API}{repo}/releases/{endpoint}')
     except HTTPError as error:
         if error.code == 404:
             return None
         raise
-    tag = published.get('tag_name')
-    if not isinstance(tag, str) or not PANEL_TAG.fullmatch(tag):
-        raise ValueError('La última release no tiene un tag de versión del panel.')
-    return tag
+    name = published.get('tag_name')
+    if (not isinstance(name, str) or not PANEL_TAG.fullmatch(name)
+            or (tag and name != tag) or published.get('draft') or published.get('prerelease')):
+        raise ValueError('La release publicada no tiene un tag de versión válido del panel.')
+    return published
 
 
-def panel_revision(repo, tag=None):
+def panel_revision(repo, tag=None, publication=None):
     commit = get_json(f'{GITHUB_API}{repo}/commits/{tag or "HEAD"}').get('sha')
     if not isinstance(commit, str) or not COMMIT.fullmatch(commit):
         raise ValueError('El commit publicado no es válido.')
-    release = validate_release(get_json(f'{GITHUB_API}{repo}/contents/panel-version.json?ref={commit}',
-                                        'application/vnd.github.raw+json'))
+    assets = (publication or {}).get('assets', [])
+    if not isinstance(assets, list) or any(not isinstance(asset, dict) for asset in assets):
+        raise ValueError('La lista de adjuntos de la release no es válida.')
+    manifests = [asset for asset in assets if asset.get('name') == 'panel-version.json']
+    if manifests:
+        if len(manifests) != 1 or manifests[0].get('state') != 'uploaded':
+            raise ValueError('El manifiesto adjunto de la release no está disponible.')
+        metadata = get_json(f'https://github.com/{repo}/releases/download/{tag}/panel-version.json')
+        if metadata.get('commit') != commit:
+            raise ValueError('El manifiesto adjunto no corresponde al commit del tag.')
+    else:
+        metadata = get_json(f'{GITHUB_API}{repo}/contents/panel-version.json?ref={commit}',
+                            'application/vnd.github.raw+json')
+    release = validate_release(metadata)
     if tag and tag != 'panel-v' + release['version']:
         raise ValueError('El tag publicado no coincide con panel-version.json.')
     return commit, release
+
+
+def deployment_release(checkout, commit, supplied=None):
+    if supplied is not None:
+        if not commit or not isinstance(supplied, dict) or supplied.get('commit') != commit:
+            raise ValueError('El manifiesto recibido no corresponde al checkout.')
+        return validate_release(supplied.get('release'))
+    local = Path(checkout) / 'panel-version.json'
+    if local.is_file():
+        return validate_release(json.loads(local.read_text(encoding='utf-8')))
+    repo = github_origin(checkout)
+    if repo and commit:
+        tags = subprocess.check_output(['git', '-C', checkout, 'tag', '--points-at', commit],
+                                       text=True, timeout=10).splitlines()
+        tags = sorted((name for name in tags if PANEL_TAG.fullmatch(name)),
+                      key=lambda name: version_parts(name.removeprefix('panel-v')), reverse=True)
+        for tag in tags:
+            publication = panel_publication(repo, tag)
+            if publication:
+                published_commit, release = panel_revision(repo, tag, publication)
+                if published_commit == commit:
+                    return release
+        publication = panel_publication(repo)
+        if publication:
+            published_commit, release = panel_revision(repo, publication['tag_name'], publication)
+            if published_commit == commit:
+                return release
+    raise ValueError('Selecciona un tag panel-v publicado antes de instalar desde la consola.')
 
 
 def compare_commits(repo, installed, published):
@@ -75,20 +118,20 @@ def panel_upgrade_path(repo, installed, installed_release, latest, release, tag)
     current = version_parts(installed_release['version'])
     if current >= version_parts(release['minimum_version']):
         return []
-    steps = [{'commit': latest, 'version': release['version'], 'tag': tag}]
+    steps = [{'commit': latest, 'version': release['version'], 'tag': tag, 'release': release}]
     while release.get('minimum_version') and current < version_parts(release['minimum_version']):
         minimum = release['minimum_version']
         step_tag = 'panel-v' + minimum
         try:
-            published = get_json(f'{GITHUB_API}{repo}/releases/tags/{step_tag}')
-            if published.get('tag_name') != step_tag or published.get('draft') or published.get('prerelease'):
+            published = panel_publication(repo, step_tag)
+            if not published:
                 raise ValueError(f'La versión intermedia {minimum} debe estar publicada.')
-            commit, release = panel_revision(repo, step_tag)
+            commit, release = panel_revision(repo, step_tag, published)
         except HTTPError as error:
             if error.code != 404:
                 raise
             raise ValueError(f'La versión intermedia {minimum} debe estar publicada.') from error
-        steps.append({'commit': commit, 'version': release['version'], 'tag': step_tag})
+        steps.append({'commit': commit, 'version': release['version'], 'tag': step_tag, 'release': release})
     steps.reverse()
     previous = installed
     for step in steps:
@@ -112,8 +155,9 @@ def compare_panel(checkout, revision):
         repo = github_origin(checkout)
         if not repo:
             return entry
-        tag = panel_release_tag(repo)
-        latest, release = panel_revision(repo, tag)
+        publication = panel_publication(repo)
+        tag = publication['tag_name'] if publication else None
+        latest, release = panel_revision(repo, tag, publication)
         if not tag and not release['update_required']:
             entry.update(latestRelease=entry['installedRelease'],
                          status='local_changes' if dirty else 'current' if entry['installedRelease'] else 'unknown_local')

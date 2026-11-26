@@ -17,7 +17,7 @@ html{scrollbar-gutter:stable}*{box-sizing:border-box}body{margin:0;min-height:10
 @media(max-width:380px){.header{--header-logo-width:118px;--identity-inset:12px;gap:12px}.header h1{font-size:14px}.header-identity{padding-top:0;padding-bottom:0}.installation-name{font-size:14px;line-height:1.2}}
 
 .scan-scope{overflow-wrap:anywhere}
-#updateProgress{appearance:auto;accent-color:var(--mint);height:8px;display:block;margin:0 0 18px}
+#updateProgress:not([hidden]){appearance:auto;accent-color:var(--mint);height:8px;display:block;margin:0 0 18px}
 #ndiRefresh:disabled,#checkUpdates:disabled{cursor:not-allowed;color:var(--text);border-color:var(--border)}
 #inventoryBackupPanel{grid-column:1/-1}
 

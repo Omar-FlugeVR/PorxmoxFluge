@@ -227,23 +227,27 @@ La pestaña **Actualizaciones** está disponible para administradores. Muestra l
 
 **Actualizar** pide confirmación para la versión mostrada. Proxmox recoge una solicitud a la vez mediante `studio-infra-update-jobs.timer`. La barra de progreso aparece al confirmar y sigue visible durante la cola y la ejecución. El panel vuelve a consultar al recuperarse de una recarga. Instala esta función sincronizando el CT de Caddy una primera vez.
 
-Para publicar **Servicio de control**, sube los cambios a `main` y abre **Actions → Publicar panel → Run workflow** en GitHub. Elige **parche**, **menor** o **mayor**. Marca **Actualización obligatoria** para mostrar el aviso amarillo. Con la casilla desmarcada, la versión se ofrece como opcional en **Actualizaciones**. GitHub ejecuta las pruebas, incrementa [`panel-version.json`](panel-version.json) y publica la release con un tag como `panel-v0.0.3`. Si falla la creación de la release después de subir el tag, puedes reintentar esa misma ejecución.
+Para publicar **Servicio de control**, sube los cambios a `main` y abre **Actions → Publicar panel → Run workflow** en GitHub. Elige **parche**, **menor** o **mayor**. Marca **Actualización obligatoria** para mostrar el aviso amarillo. Con la casilla desmarcada, la versión se ofrece como opcional en **Actualizaciones**. GitHub ejecuta las pruebas y publica la release con un tag como `panel-v0.0.6`. Si falla después de subir el tag, reintenta esa misma ejecución.
+
+Para migrar al manifiesto como adjunto de GitHub, publica e instala primero una versión puente con este comprobador y el archivo `panel-version.json` de la raíz. Después de verificar que esa versión está instalada en los nodos que vayan a actualizar por web, retira el archivo en un commit y publica el siguiente parche. El workflow tomará la última release como base, etiquetará el commit probado y adjuntará el JSON en **Assets**. Así se elimina el commit de versión en `main` y el pull adicional en el ordenador de desarrollo. Las releases antiguas conservan el manifiesto en sus tags.
 
 **Versión mínima compatible** se guarda como `minimum_version` en el manifiesto de la release. Si `2.0.1` exige `1.9.1` y `1.9.1` exige `1.8.0`, un panel en `1.5.0` mostrará la ruta `1.8.0 → 1.9.1 → 2.0.1`. Cada mínimo debe tener su propia release publicada. Una instalación que ya cumple el mínimo puede ir directamente a la última versión. Deja el campo vacío para heredar el mínimo anterior. Escribe `ninguna` cuando la nueva versión pueda actualizar desde las anteriores sin ese paso.
 
 El panel muestra la ruta antes de confirmar. Proxmox verifica todos los commits antes de aplicar el primer paso. Si falta una release intermedia o se rompe el historial, el panel indica el motivo y bloquea la actualización. Si falla un despliegue, la cadena se detiene y la siguiente comprobación calcula la ruta desde la revisión instalada. El despliegue manual respeta el mínimo de la versión que se sincroniza.
 
-Proxmox ofrece **Actualizar** para la versión publicada, aunque esté marcada como opcional. Lee el manifiesto del commit etiquetado, verifica esa revisión al descargarla y avanza su copia local con `git merge --ff-only`. Después ejecuta `sync.sh` para Caddy. El despliegue valida Caddy y recarga Caddy y PHP-FPM. El inventario, los ajustes y las cuentas permanecen en el estado privado del CT. Si falla la validación o la recarga, se restauran los archivos anteriores.
+Proxmox ofrece **Actualizar** para la versión publicada, aunque esté marcada como opcional. Lee el manifiesto adjunto y comprueba que indica el commit del tag. En las releases antiguas lo lee del propio commit. Verifica la revisión al descargarla y ejecuta `sync.sh` para Caddy con ese manifiesto. El despliegue valida Caddy y recarga Caddy y PHP-FPM. El inventario, los ajustes y las cuentas permanecen en el estado privado del CT. Si falla la validación o la recarga, se restauran los archivos anteriores.
 
 Sincroniza Caddy una primera vez desde un checkout que contenga el comprobador de releases. Mientras GitHub aún no tenga una release publicada, el comprobador admite el mecanismo anterior basado en `main` y `update_required: true`. La versión instalada se registra al sincronizar Caddy.
 
-El despliegue desde la terminal sigue disponible. Ejecuta como root desde el checkout de Proxmox:
+El despliegue desde la terminal sigue disponible. Durante la migración puedes ejecutar como root desde el checkout de Proxmox:
 
 ```bash
 git pull --ff-only
 ./sync.sh --ct caddy --check
 ./sync.sh --ct caddy
 ```
+
+Una vez retirado el manifiesto de `main`, sitúa el checkout en el tag publicado que quieras desplegar antes de ejecutar `install.sh` o `sync.sh`. Así el instalador identifica la versión y comprueba el mínimo compatible.
 
 | Servicio | Qué muestra y cómo se actualiza |
 |---|---|

@@ -70,13 +70,18 @@ apply_caddy() {
     else
         revision=''
     fi
-    minimum="$(PYTHONPATH="$REPO_DIR/scripts" python3 - "$REPO_DIR/panel-version.json" "$TEMP_DIR/revision.json" "$revision" "$dirty" <<'PY'
-import json, sys
+    minimum="$(PYTHONPATH="$REPO_DIR/scripts" python3 - "$REPO_DIR" "$TEMP_DIR/revision.json" "$revision" "$dirty" <<'PY'
+import json, os, subprocess, sys
+from http.client import HTTPException
 from pathlib import Path
-from panel_release import validate_release
+from check_updates import deployment_release
 
-source, destination, commit, dirty = sys.argv[1:]
-release = validate_release(json.loads(Path(source).read_text(encoding='utf-8')))
+checkout, destination, commit, dirty = sys.argv[1:]
+try:
+    supplied = json.loads(os.environ['FLUGE_PANEL_RELEASE']) if 'FLUGE_PANEL_RELEASE' in os.environ else None
+    release = deployment_release(checkout, commit, supplied)
+except (OSError, HTTPException, ValueError, subprocess.SubprocessError) as error:
+    raise SystemExit(f'No se puede identificar la versión del panel. {error}') from None
 Path(destination).write_text(json.dumps({'commit': commit or None, 'dirty': dirty == 'true', 'release': release}), encoding='utf-8')
 print(release.get('minimum_version', ''))
 PY

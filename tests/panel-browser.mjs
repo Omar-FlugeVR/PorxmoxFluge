@@ -83,10 +83,12 @@ try {
   }
   await fill('#loginForm [name=username]','admin');await fill('#loginForm [name=password]','FlugeDemo2026');
   await click('#loginForm button[type=submit]');
-  await waitFor(`!document.getElementById('app').hidden && document.querySelectorAll('.service-card').length === 4`);
+  await waitFor(`!document.getElementById('app').hidden && document.querySelectorAll('.service-card').length === 5`);
   await click('[data-view=updates]');
   await waitFor(`document.querySelectorAll('#updatesRows tr').length === 5`);
   assert(await evaluate(`document.getElementById('updatesCheckedAt').textContent.includes('Pendiente')`), 'Missing update report should be shown as pending');
+  const progressVisible = `document.getElementById('updateProgress').getClientRects().length > 0`;
+  assert(!await evaluate(progressVisible), 'The progress bar must occupy no space when idle');
   if (stateDirectory) {
     const installedRelease = {version:'0.0.1',type:'test',update_required:false};
     const latestRelease = {version:'0.0.2',type:'test',update_required:true};
@@ -108,24 +110,24 @@ try {
       };
     })()`);
     await click('#checkUpdates');
-    assert(await evaluate(`document.getElementById('checkUpdates').disabled&&document.getElementById('checkUpdates').textContent==='Comprobando…'&&!document.getElementById('updateProgress').hidden`), 'Searching must show progress and disable the button');
+    assert(await evaluate(`document.getElementById('checkUpdates').disabled&&document.getElementById('checkUpdates').textContent==='Comprobando…'&&(${progressVisible})`), 'Searching must show progress and disable the button');
     await waitFor(`!document.getElementById('checkUpdates').disabled&&document.getElementById('updatesRows').textContent.includes('0.0.1 (test)')&&document.getElementById('updateJobStatus').textContent.includes('Búsqueda completada')`);
     assert(JSON.parse(fs.readFileSync(updateRequestFile)).role==='check'&&JSON.parse(fs.readFileSync(updatesFile)).checkedAt!==panelReport.checkedAt, 'Manual search must queue a check and refresh the report');
-    assert(await evaluate(`document.getElementById('panelUpdateNotice').hidden&&document.querySelector('[data-update-role=panel]').disabled`), 'An installer-only commit must not offer a panel update');
+    assert(await evaluate(`document.getElementById('panelUpdateNotice').hidden&&!document.querySelector('#updatesRows button')&&!(${progressVisible})`), 'A current report must have no update buttons or visible progress bar');
     Object.assign(panelReport.services.panel,{latest:'b'.repeat(40),tag:'panel-v0.0.2',latestRelease:{...latestRelease,update_required:false},status:'update',canUpdate:true});
     fs.writeFileSync(updatesFile, JSON.stringify(panelReport));
     await click('#checkUpdates');
-    await waitFor(`document.getElementById('panelUpdateNotice').hidden&&!document.querySelector('[data-update-role=panel]').disabled&&!document.getElementById('checkUpdates').disabled`);
+    await waitFor(`document.getElementById('panelUpdateNotice').hidden&&document.querySelector('[data-update-role=panel]')?.disabled===false&&!document.getElementById('checkUpdates').disabled`);
     const futureRelease = {...latestRelease,version:'0.0.3',minimum_version:'0.0.2'};
     Object.assign(panelReport.services.panel,{latest:'c'.repeat(40),tag:'panel-v0.0.3',latestRelease:{...futureRelease,update_required:false},
       status:'incompatible',canUpdate:false,compatibility:'La versión intermedia 0.0.2 debe estar publicada.'});
     fs.writeFileSync(updatesFile, JSON.stringify(panelReport));
     await click('#checkUpdates');
-    await waitFor(`document.getElementById('panelUpdateNotice').hidden&&document.getElementById('updatesRows').textContent.includes('Ruta de actualización no disponible')&&document.querySelector('[data-update-role=panel]').disabled&&!document.getElementById('checkUpdates').disabled`);
+    await waitFor(`document.getElementById('panelUpdateNotice').hidden&&document.getElementById('updatesRows').textContent.includes('Ruta de actualización no disponible')&&!document.querySelector('[data-update-role=panel]')&&!document.getElementById('checkUpdates').disabled`);
     panelReport.services.panel.latestRelease = futureRelease;
     fs.writeFileSync(updatesFile, JSON.stringify(panelReport));
     await click('#checkUpdates');
-    await waitFor(`!document.getElementById('panelUpdateNotice').hidden&&document.getElementById('panelUpdateNotice').textContent.includes('debe estar publicada')&&document.querySelector('[data-update-role=panel]').disabled&&!document.getElementById('checkUpdates').disabled`);
+    await waitFor(`!document.getElementById('panelUpdateNotice').hidden&&document.getElementById('panelUpdateNotice').textContent.includes('debe estar publicada')&&!document.querySelector('[data-update-role=panel]')&&!document.getElementById('checkUpdates').disabled`);
     delete panelReport.services.panel.compatibility;
     Object.assign(panelReport.services.panel,{status:'update',canUpdate:true,
       upgradePath:[{version:'0.0.2',commit:'b'.repeat(40)},{version:'0.0.3',commit:'c'.repeat(40)}]});
@@ -143,8 +145,8 @@ try {
     assert(await evaluate(`!document.getElementById('updateDialog').open&&!document.querySelector('[data-update-role=panel]').disabled`), 'Cancelling must leave the selected update available');
     await evaluate(`(()=>{const fetch=window.fetch;window.fetch=async (input,options)=>{if(options?.body?.includes('update_service'))await new Promise(r=>setTimeout(r,400));return fetch(input,options);};})()`);
     await click('[data-update-role=panel]');await click('#updateAccept');
-    assert(await evaluate(`!document.getElementById('updateProgress').hidden&&!document.getElementById('updateProgress').hasAttribute('value')`), 'The progress bar must appear as soon as the update is confirmed');
-    await waitFor(`document.getElementById('updateJobStatus').textContent.includes('Actualización completada')&&document.querySelector('[data-update-role=panel]').disabled&&document.getElementById('updateProgress').hidden&&document.getElementById('panelUpdateNotice').hidden`);
+    assert(await evaluate(`(${progressVisible})&&!document.getElementById('updateProgress').hasAttribute('value')`), 'The progress bar must appear as soon as the update is confirmed');
+    await waitFor(`document.getElementById('updateJobStatus').textContent.includes('Actualización completada')&&!document.querySelector('[data-update-role=panel]')&&!(${progressVisible})&&document.getElementById('panelUpdateNotice').hidden`);
   }
   await checkRefreshTimeout('checkUpdates', 'check_updates', 'Comprobando…', 'feedback');
   await click('[data-view=services]');
@@ -158,24 +160,45 @@ try {
   assert(await evaluate(`document.getElementById('categories').textContent.includes('Vídeo')`),'UTF-8 category text corrupted');
   await fill('#search','bitfocus');assert(await evaluate(`document.querySelectorAll('.service-card').length`)===1,'Search failed');await fill('#search','');
   await click('#addButton');assert(await evaluate(`document.querySelectorAll('#editorForm button[type=submit]').length`)===1,'Editor must have one save action');await fill('#editorForm [name=name]','Prueba QA');await fill('#editorForm [name=subdomain]','prueba-qa');await fill('#editorForm [name=url]','http://192.168.1.45:8080');await fill('#editorForm [name=description]','Servicio para verificar el alta');await click('#saveButton');
-  await waitFor(`!document.getElementById('editor').open && document.querySelectorAll('.service-card').length === 5`);
+  await waitFor(`!document.getElementById('editor').open && document.querySelectorAll('.service-card').length === 6`);
   await click('#showApplied');await waitFor(`document.getElementById('appliedDialog').open`);
   assert(await evaluate(`document.getElementById('appliedCaddy').textContent.includes('http://192.168.1.45:8080{uri}')`),'Caddy route missing');
   assert(await evaluate(`(()=>{const rows=[...document.querySelectorAll('#appliedDns tbody tr')];const destination=domain=>rows.find(row=>row.cells[0].textContent===domain)?.cells[2].textContent;return destination('prueba-qa.lan')==='http://192.168.1.45:8080'&&destination('companion.lan')==='http://192.168.1.15:8000'&&destination('proxmox.lan')==='https://192.168.1.10:8006'&&destination('adguard.lan')==='http://192.168.1.11:80'&&destination('ndi.lan')==='Sin redirección · solo DNS'&&rows.find(row=>row.cells[0].textContent==='companion.lan').cells[1].textContent==='192.168.1.12';})()`),'Applied rules must distinguish the DNS address from redirect destinations and show explicit/default ports');
   await screenshot('panel-applied-rules');await click('#appliedDialog [data-close]');
-  await call('Page.reload');await waitFor(`!document.getElementById('app').hidden && document.querySelectorAll('.service-card').length === 5`);
+  await call('Page.reload');await waitFor(`!document.getElementById('app').hidden && document.querySelectorAll('.service-card').length === 6`);
   assert(await evaluate(`document.getElementById('serviceGrid').textContent.includes('virtualización')`),'UTF-8 did not survive saving');
   const id = await evaluate(`(async () => (await (await fetch('api.php?action=data')).json()).services.find(s=>s.name==='Prueba QA').id)()`);
   await click(`[data-edit="${id}"]`);await fill('#editorForm [name=url]','https://192.168.1.46:8443');await click('#saveButton');await waitFor(`!document.getElementById('editor').open`);
   assert(await evaluate(`(async()=> (await (await fetch('api.php?action=applied')).json()).caddy.includes('https://192.168.1.46:8443{uri}'))()`),'Editing did not publish automatically');
   await click('#showApplied');await waitFor(`document.getElementById('appliedDialog').open`);assert(await evaluate(`[...document.querySelectorAll('#appliedDns tbody tr')].find(row=>row.cells[0].textContent==='prueba-qa.lan').cells[2].textContent==='https://192.168.1.46:8443'`),'Applied redirect port did not update after editing');await click('#appliedDialog [data-close]');
-  await click(`[data-edit="${id}"]`);await click('#deleteService');await click('#confirmAction');await waitFor(`!document.getElementById('confirmDialog').open && document.querySelectorAll('.service-card').length === 4`);
+  await click(`[data-edit="${id}"]`);await click('#deleteService');await click('#confirmAction');await waitFor(`!document.getElementById('confirmDialog').open && document.querySelectorAll('.service-card').length === 5`);
   assert(await evaluate(`(async()=>{const applied=await(await fetch('api.php?action=applied')).json();return !applied.caddy.includes('prueba-qa.lan')&&!applied.dns.some(e=>e.domain==='prueba-qa.lan');})()`),'Deleting did not publish automatically');
   console.log('Single Save automatically publishes creation, editing and deletion; DNS/302 and persistence passed.');
   await click('[data-view=devices]');await click('#addButton');await fill('#editorForm [name=hostname]','Sin respuesta QA');await fill('#editorForm [name=ip]','192.168.1.40');await click('#saveButton');await waitFor(`!document.getElementById('editor').open`);
   await click('#addButton');await fill('#editorForm [name=hostname]','Fuera de rango QA');await fill('#editorForm [name=ip]','192.168.1.90');await click('#saveButton');await waitFor(`!document.getElementById('editor').open`);
   const beforeScanRevision=await evaluate(`(async()=>(await(await fetch('api.php?action=data')).json()).revision)()`);
-  await click('[data-view=scan]');await fill('#scanRange','192.168.1.1-50');await click('#startScan');await waitFor(`!document.getElementById('startScan').hidden && document.querySelector('[data-discovered="192.168.1.30"]')`);
+  await evaluate(`(()=>{
+    const fetch = window.fetch;
+    window.fetch = (input, options) => {
+      if (options?.body?.includes('scan_chunk') && JSON.parse(options.body).ips[0] === '192.168.1.33') {
+        return new Promise(resolve => { window.resumeScan = () => { window.fetch = fetch; resolve(fetch(input, options)); }; });
+      }
+      return fetch(input, options);
+    };
+  })()`);
+  await click('[data-view=scan]');
+  await fill('#scanRange','192.168.1.1-50');
+  await click('#startScan');
+  await waitFor(`Boolean(window.resumeScan&&document.querySelector('[data-discovered="192.168.1.30"]'))`);
+  assert(await evaluate(`!document.getElementById('stopScan').hidden&&[...document.querySelectorAll('#scanTable button')].every(button=>button.disabled)`), 'Inventory actions must stay disabled while partial scan results arrive');
+  await click('[data-view=devices]');
+  assert(await evaluate(`document.getElementById('addButton').disabled&&document.querySelector('[data-delete-ip="panel-landing-device"]').disabled&&document.querySelector('[data-host="192.168.1.12"]').disabled`), 'Moving to Devices must preserve the scan lock');
+  await click('[data-view=services]');
+  assert(await evaluate(`document.getElementById('addButton').disabled&&document.querySelector('[data-edit="panel-landing"]').disabled`), 'Moving to Services must preserve the scan lock');
+  await click('[data-view=scan]');
+  await evaluate(`window.resumeScan()`);
+  await waitFor(`!document.getElementById('startScan').hidden&&document.querySelector('[data-discovered="192.168.1.30"]')?.disabled===false`);
+  assert(await evaluate(`document.querySelector('[data-host-service="192.168.1.12"]').textContent==='Editar servicio'&&!document.getElementById('addButton').disabled`), 'The landing must be registered with its own service and all actions re-enabled after the scan');
   await click('[data-scan-filter=offline]');assert(await evaluate(`document.getElementById('scanTable').textContent.includes('Sin respuesta QA')&&!document.getElementById('scanTable').textContent.includes('Fuera de rango QA')`),'Out-of-range equipment was classified as inactive');assert(await evaluate(`document.querySelector('#scanTable tbody tr').textContent.includes('192.168.1.40')`),'Registered nonresponding equipment should appear first');
   await fill('#scanRange','192.168.1.90-95');await click('#startScan');assert(await evaluate(`!document.getElementById('scanTable').textContent.includes('Sin respuesta QA')`),'Previous inactive results must clear when a new scan starts');await waitFor(`!document.getElementById('startScan').hidden&&document.getElementById('scanScope').textContent.includes('192.168.1.90-95')`);assert(await evaluate(`document.getElementById('scanTable').textContent.includes('Fuera de rango QA')&&!document.getElementById('scanTable').textContent.includes('Sin respuesta QA')`),'Changing range retained stale inactive results');
   await fill('#scanRange','192.168.1.10-16');await click('#startScan');await waitFor(`!document.getElementById('startScan').hidden&&document.getElementById('scanScope').textContent.includes('192.168.1.10-16')`);assert(await evaluate(`!document.getElementById('scanTable').textContent.includes('Fuera de rango QA')&&!document.getElementById('scanTable').textContent.includes('Sin respuesta QA')`),'Unscanned registered equipment was marked inactive');
@@ -246,9 +269,9 @@ try {
   assert(await evaluate(`document.querySelector('[data-category="Categoría QA"]')===null&&document.querySelector('[data-category="Categoría renovada QA"]').classList.contains('selected')`),'Category rename did not update or preserve the active filter');
   assert(await evaluate(`(async()=>{const data=await(await fetch('api.php?action=data')).json();return data.services.find(s=>s.domain==='segundo-qa.lan').category==='Categoría renovada QA'&&data.ips.find(h=>h.ip==='192.168.1.30').tag==='Categoría renovada QA';})()`),'Category rename did not update both inventory references');
   await click(`[data-delete-category="${categoryId}"]`);await waitFor(`document.getElementById('categoryDeleteDialog').open`);assert(await evaluate(`document.getElementById('categoryReplacement').required`),'Used category deletion must require a destination');await fill('#categoryReplacement','cat-0');await click('#categoryDeleteForm button[type=submit]');await waitFor(`!document.getElementById('categoryDeleteDialog').open`);
-  assert(await evaluate(`(async()=>{const data=await(await fetch('api.php?action=data')).json();return data.categories.every(c=>c.name!=='Categoría renovada QA')&&data.services.find(s=>s.domain==='segundo-qa.lan').category==='Infraestructura'&&data.ips.find(h=>h.ip==='192.168.1.30').tag==='Infraestructura'&&data.services.length===6;})()`),'Deleting category did not safely reassign its services and equipment');
+  assert(await evaluate(`(async()=>{const data=await(await fetch('api.php?action=data')).json();return data.categories.every(c=>c.name!=='Categoría renovada QA')&&data.services.find(s=>s.domain==='segundo-qa.lan').category==='Infraestructura'&&data.ips.find(h=>h.ip==='192.168.1.30').tag==='Infraestructura'&&data.services.length===7;})()`),'Deleting category did not safely reassign its services and equipment');
   await click('#addCategoryButton');await fill('#editorForm [name=name]','Vacía QA');await click('#saveButton');await waitFor(`!document.getElementById('editor').open`);const emptyId=await evaluate(`(async()=>(await(await fetch('api.php?action=data')).json()).categories.find(c=>c.name==='Vacía QA').id)()`);await click(`[data-delete-category="${emptyId}"]`);assert(await evaluate(`document.getElementById('categoryReplacementField').hidden`),'Empty category should not require reassignment');await click('#categoryDeleteForm button[type=submit]');await waitFor(`!document.getElementById('categoryDeleteDialog').open`);
-  await call('Page.reload');await waitFor(`!document.getElementById('app').hidden&&document.querySelectorAll('.service-card').length===6`);assert(await evaluate(`!document.getElementById('categoryList').textContent.includes('Categoría renovada QA')&&!document.getElementById('categoryList').textContent.includes('Vacía QA')`),'Category changes did not persist');
+  await call('Page.reload');await waitFor(`!document.getElementById('app').hidden&&document.querySelectorAll('.service-card').length===7`);assert(await evaluate(`!document.getElementById('categoryList').textContent.includes('Categoría renovada QA')&&!document.getElementById('categoryList').textContent.includes('Vacía QA')`),'Category changes did not persist');
   await click('[data-view=settings]');await screenshot('panel-settings-categories');
   console.log('Category creation, form choices, renaming, active filters, safe deletion and persistence passed.');
   assert(await evaluate(`document.querySelectorAll('#usersList .current-user').length===1&&document.querySelector('#usersList .current-user').dataset.userId==='independent-admin'&&document.querySelector('[data-user-id="independent-admin"] [data-toggle-user]')===null&&document.querySelector('[data-user-id="independent-admin"] [data-delete-user]')===null`),'Primary account must be highlighted and protected from disabling/deletion');
@@ -270,6 +293,7 @@ try {
   await call('Page.reload');await waitFor(`!document.getElementById('app').hidden&&!document.getElementById('ndiTab').hidden`);assert(await evaluate(`document.querySelector('#ndiForm [name=ip]').value==='192.168.10.20'&&document.querySelector('#ndiForm [name=polling_rate]').value==='2'&&document.querySelector('#ndiForm [name=groups]').value==='Public,camaras'`),'NDI settings must persist across reloads');
   await evaluate(`(()=>{window.ndiStatusRequests=0;const original=window.fetch;window.fetch=(input,options)=>{if(String(input).includes('api/ndi/status'))window.ndiStatusRequests++;return original(input,options);};})()`);
   await click('#ndiTab');await waitFor(`document.getElementById('ndiState').textContent==='Online'&&document.querySelectorAll('#ndiSources tbody tr').length===7`);assert(await evaluate(`document.getElementById('ndiSourceCount').textContent==='5'&&document.getElementById('ndiReceiverCount').textContent==='2'&&document.getElementById('ndiSources').textContent.includes('VMIX-MAIN')&&document.getElementById('ndiSources').textContent.includes('192.168.10.65:5962')&&document.querySelectorAll('#ndiSources time[datetime]').length===7&&document.getElementById('ndiEvents').textContent.includes('Receptor detectado')`),'NDI must show sender/receiver roles, latest sightings and a persistent activity log');
+  assert(await evaluate(`getComputedStyle(document.querySelector('.ndi-role.sender')).color==='rgb(145, 195, 250)'&&getComputedStyle(document.querySelector('.ndi-role.receiver')).color==='rgb(145, 220, 160)'`), 'NDI must render senders in blue and receivers in green');
   await click('[data-ndi-direction=receiver]');assert(await evaluate(`document.querySelectorAll('#ndiSources tbody tr').length===2&&document.getElementById('ndiSources').textContent.includes('También emite')`),'Receiver filter must identify hosts that also send');await click('[data-ndi-direction=sender]');assert(await evaluate(`document.querySelectorAll('#ndiSources tbody tr').length===5`),'Sender filter failed');await click('[data-ndi-direction=all]');await screenshot('panel-ndi-desktop');await screenshot('panel-ndi-history','#ndiView');
   await fill('#ndiSearch','escenario');assert(await evaluate(`document.querySelectorAll('#ndiSources tbody tr').length===1&&document.getElementById('ndiSources').textContent.includes('CAM-02')`),'NDI stream filter failed');await fill('#ndiSearch','192.168.10.65');assert(await evaluate(`document.getElementById('ndiSources').textContent.includes('PROPRESENTER')&&!document.getElementById('ndiSources').textContent.includes('CAM-01')`),'NDI address filter failed');await fill('#ndiSearch','');
   const ndiInitialUpdate=await evaluate(`document.getElementById('ndiUpdated').textContent`);await waitFor(`window.ndiStatusRequests>=2&&document.getElementById('ndiUpdated').textContent!==${JSON.stringify(ndiInitialUpdate)}`);
