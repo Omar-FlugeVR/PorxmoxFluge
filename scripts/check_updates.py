@@ -10,7 +10,7 @@ import os
 import tarfile
 from pathlib import Path
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 from ndi_release import CACHE, fetch_release
 from ndi_sdk import display_license, read_license
@@ -30,6 +30,20 @@ def get_json(url, media_type='application/json'):
     if not isinstance(document, dict):
         raise ValueError('Invalid response')
     return document
+
+
+def record_lookup_failure(entry, service, error):
+    print(f'{service}: {error}', file=sys.stderr)
+    if isinstance(error, HTTPError) and error.url.startswith(GITHUB_API):
+        headers = error.headers or {}
+        if error.code == 429 or (error.code == 403 and headers.get('X-RateLimit-Remaining') == '0'):
+            entry['remoteError'] = 'GitHub ha limitado temporalmente las consultas.'
+            reset = headers.get('X-RateLimit-Reset', '')
+            now = datetime.now(timezone.utc)
+            if re.fullmatch(r'[0-9]{1,12}', reset) and 0 < int(reset) - now.timestamp() <= 86400:
+                entry['retryAt'] = datetime.fromtimestamp(int(reset), timezone.utc).isoformat()
+    if isinstance(error, TimeoutError) or (isinstance(error, URLError) and isinstance(error.reason, TimeoutError)):
+        entry['remoteError'] = 'La publicación ha tardado demasiado en responder.'
 
 
 def github_origin(checkout):
@@ -182,7 +196,7 @@ def compare_panel(checkout, revision):
                     entry.update(status='incompatible', compatibility=str(error))
     except (OSError, HTTPException, ValueError, TypeError, subprocess.SubprocessError) as error:
         entry['status'] = 'unknown_remote'
-        print(f'Panel Fluge: {error}', file=sys.stderr)
+        record_lookup_failure(entry, 'Panel Fluge', error)
     return entry
 
 
@@ -216,7 +230,7 @@ def compare_product(role, state, raw):
             status = 'update' if local_order < stable_order else 'newer' if local_order > stable_order else 'current'
             entry.update(latest=latest[0].lstrip('vV'), status=status)
     except (OSError, HTTPException, ValueError, TypeError) as error:
-        print(f'{role}: {error}', file=sys.stderr)
+        record_lookup_failure(entry, role, error)
     return entry
 
 

@@ -3,6 +3,7 @@ import copy
 from hashlib import sha256
 import http.cookiejar
 import importlib.util
+from io import BytesIO
 import json
 import os
 import secrets
@@ -15,6 +16,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 PHP = os.environ.get('FLUGE_TEST_PHP') or shutil.which('php')
@@ -217,6 +219,32 @@ class PanelTests(unittest.TestCase):
         path.write_text(json.dumps(report), encoding='utf-8')
         self.assertEqual(self.request('updates'), (200, report))
         self.assertEqual(self.request('updates', client=urllib.request.build_opener())[0], 401)
+
+    def test_download_diagnostic_zip_requires_admin_and_excludes_private_state(self):
+        self.assertEqual(self.request('support_logs', {}, csrf=False)[0], 403)
+        status, job = self.request('support_logs', {})
+        self.assertEqual((status, job['state']), (200, 'ready'))
+        status_url = '/api.php?action=support_logs_status&id=' + job['id']
+        download_url = '/api.php?action=support_logs_download&id=' + job['id']
+        self.assertEqual(self.request(status_url), (200, job))
+        self.assertEqual(self.request(download_url, client=urllib.request.build_opener())[0], 401)
+        viewer = {'revision':0, 'username':'logsviewer', 'password':'ViewerDemo1', 'confirmPassword':'ViewerDemo1', 'role':'user'}
+        self.assertEqual(self.request('create_user', viewer)[0], 200)
+        client, session = self.another_session('logsviewer', 'ViewerDemo1')
+        self.assertEqual(self.request('support_logs', {}, client=client, csrf=session['csrfToken'])[0], 403)
+        self.assertEqual(self.request(download_url, client=client)[0], 403)
+        self.assertEqual(self.request('/api.php?action=support_logs_download&id=../auth.json')[0], 400)
+        with self.client.open(self.base + download_url, timeout=8) as response:
+            self.assertEqual(response.headers.get_content_type(), 'application/zip')
+            self.assertIn('attachment; filename="fluge-logs-', response.headers['Content-Disposition'])
+            with ZipFile(BytesIO(response.read())) as archive:
+                self.assertIsNone(archive.testzip())
+                self.assertEqual({Path(name).parts[0] for name in archive.namelist()},
+                                 {'proxmox','panel','caddy','adguard','companion','ndi','resumen.txt'})
+                self.assertIn('panel/ndi-history.json', archive.namelist())
+                self.assertIn('adguard/consultas-dns.jsonl', archive.namelist())
+                self.assertIn(b'datos simulados', archive.read('resumen.txt'))
+                self.assertFalse(any(name.endswith(('auth.json', 'config.json', 'users.json')) for name in archive.namelist()))
 
     def test_search_updates_requests_fresh_report_without_installing(self):
         path = self.state / 'updates.json'

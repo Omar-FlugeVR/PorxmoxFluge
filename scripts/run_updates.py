@@ -73,15 +73,15 @@ def valid_request(request, now):
             and re.fullmatch({'panel': r'[a-f0-9]{40}', 'ndi': r'SDK 6\.\d+\.\d+'}.get(role, r'\d+\.\d+\.\d+'), target))
 
 
-def verify_target(role):
+def verify_target(role, *, require_service=True):
     return execute('bash', '-euc', '''
         source "$1/scripts/common.sh"
         ct_settings "$2"
         [[ -n "$CT_IP" && "$(ct_state "$CT_ID")" == existing && "$(pct status "$CT_ID")" == 'status: running' ]]
         verify_ct "$CT_ID"
-        assert_services "$2"
+        if [[ "$3" == 1 ]]; then assert_services "$2"; fi
         printf '%s\\n' "$CT_ID"
-    ''', 'verify-target', SNAPSHOT, role, capture=True, timeout=30)
+    ''', 'verify-target', SNAPSHOT, role, '1' if require_service else '0', capture=True, timeout=30 if require_service else 8)
 
 
 def fetch_panel_step(git, repo, step):
@@ -134,7 +134,7 @@ def update_panel(checkout, ct, target, request=None):
     installed = read_guest_json(ct, '/opt/fluge-control/revision.json')
     available = compare_panel(checkout, installed)
     if available['status'] != 'update' or available['latest'] != target:
-        raise ValueError('El commit solicitado ya no está disponible para este panel.')
+        raise ValueError(available.get('remoteError', 'El commit solicitado ya no está disponible para este panel.'))
     git = ('git', '-C', checkout)
     if execute(*git, 'status', '--porcelain', capture=True, timeout=10):
         raise ValueError('El repositorio de Proxmox tiene cambios locales.')

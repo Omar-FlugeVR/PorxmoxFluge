@@ -96,6 +96,8 @@ try {
     const panelReport = {checkedAt:new Date(Date.now()-60000).toISOString(),services:{
       panel:{installed:'a'.repeat(40),latest:null,installedRelease,latestRelease:installedRelease,status:'current',canUpdate:false},
       companion:{installed:'5.1.3',latest:'5.1.3',status:'current'},
+      adguard:{installed:'0.107.73',status:'unknown_remote',remoteError:'GitHub ha limitado temporalmente las consultas.',
+        retryAt:new Date(Date.now()+300000).toISOString()},
       ndi:{installed:'SDK 6.3.1',status:'manual'},
     }};
     const updatesFile = path.join(stateDirectory, 'updates.json');
@@ -114,6 +116,7 @@ try {
     assert(await evaluate(`document.getElementById('checkUpdates').disabled&&document.getElementById('checkUpdates').textContent==='Comprobando…'&&(${updateModalOpen})&&(${progressVisible})`), 'Searching must block the panel and show progress');
     await waitFor(`!document.getElementById('checkUpdates').disabled&&document.getElementById('updatesRows').textContent.includes('0.0.1 (test)')&&document.getElementById('updateJobStatus').textContent.includes('Búsqueda completada')`);
     assert(JSON.parse(fs.readFileSync(updateRequestFile)).role==='check'&&JSON.parse(fs.readFileSync(updatesFile)).checkedAt!==panelReport.checkedAt, 'Manual search must queue a check and refresh the report');
+    assert(await evaluate(`document.getElementById('updatesRows').textContent.includes('GitHub ha limitado temporalmente las consultas.')&&document.getElementById('updatesRows').textContent.includes('Vuelve a intentar a partir de las')`), 'The report must explain GitHub rate limits and the retry time');
     assert(await evaluate(`document.getElementById('panelUpdateNotice').hidden&&!document.querySelector('#updatesRows button')&&!(${progressVisible})`), 'A current report must have no update buttons or visible progress bar');
     Object.assign(panelReport.services.panel,{latest:'b'.repeat(40),tag:'panel-v0.0.2',latestRelease:{...latestRelease,update_required:false},status:'update',canUpdate:true});
     fs.writeFileSync(updatesFile, JSON.stringify(panelReport));
@@ -218,6 +221,18 @@ try {
   assert(await evaluate(`document.getElementById('scanRange').value==='192.168.1.0/24'&&document.querySelector('[data-all-networks]').classList.contains('selected')`),'Scanner must initially select all configured networks');
   assert(await evaluate(`document.getElementById('applyButton') === null && document.getElementById('retryButton').hidden`),'Normal workflow must not require manual publication');
   await click('[data-view=settings]');await fill('#installationForm [name=installationName]','Plató principal · Fluge');await click('#installationForm button[type=submit]');
+  await evaluate(`(() => {
+    const original = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = async function() {
+      if (!this.download.startsWith('fluge-logs-')) return original.call(this);
+      HTMLAnchorElement.prototype.click = original;
+      const bytes = new Uint8Array(await (await fetch(this.href)).arrayBuffer());
+      window.supportZip = {filename:this.download, signature:Array.from(bytes.slice(0,4))};
+    };
+  })()`);
+  await click('#downloadLogs');
+  await waitFor(`window.supportZip&&document.getElementById('downloadLogsStatus').textContent==='Descarga iniciada.'`);
+  assert(await evaluate(`window.supportZip.filename.endsWith('.zip')&&window.supportZip.signature.join(',')==='80,75,3,4'&&!document.getElementById('downloadLogs').disabled`), 'Settings must download a ZIP and re-enable the button');
   await waitFor(`document.getElementById('installationName').textContent==='Plató principal · Fluge'&&!document.getElementById('installationName').hidden`);
   await call('Page.reload');await waitFor(`!document.getElementById('app').hidden&&document.getElementById('installationName').textContent==='Plató principal · Fluge'`);
   console.log('Installation name updates immediately and persists after reloading.');

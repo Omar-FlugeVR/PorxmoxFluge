@@ -290,6 +290,8 @@ Un fallo de validación, recarga, arranque o comprobación de respuesta restaura
 
 Si falla el aprovisionamiento inicial, el CT creado se conserva para diagnóstico. Revisa el error y sus logs antes de intervenir: una reejecución no lo reinstala automáticamente. Para reutilizar un CT compatible administrado previamente, AdGuard debe estar inicializado en la ruta oficial, con `python3-yaml`, o Caddy debe disponer de su unidad `systemd` y su grupo `caddy`.
 
+En **Configuración → Diagnóstico**, los administradores pueden pulsar **Descargar logs**. El host prepara un ZIP con los registros recientes de Proxmox y los CT configurados, el historial NDI y el estado de publicación del panel. `resumen.txt` indica los registros que faltan y los límites aplicados. El ZIP puede contener direcciones IP, nombres y consultas DNS. La muestra local genera el mismo ZIP con datos simulados.
+
 Diagnóstico desde el host, ajustando los IDs a tu configuración:
 
 ```bash

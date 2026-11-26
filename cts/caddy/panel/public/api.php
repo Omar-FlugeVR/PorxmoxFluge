@@ -11,6 +11,7 @@ use Homelab\JsonStore;
 use Homelab\NetworkScanner;
 use Homelab\NdiMonitor;
 use Homelab\NdiRuntime;
+use Homelab\SupportLogs;
 use Homelab\UsersRepository;
 use Homelab\UpdateJobs;
 use Homelab\Validator;
@@ -106,6 +107,15 @@ try {
             case 'POST:update_service':
                 $response = (new UpdateJobs($store))->enqueue($input);
                 break;
+            case 'POST:support_logs':
+                $response = (new SupportLogs($store))->enqueue();
+                break;
+            case 'GET:support_logs_status':
+                $response = (new SupportLogs($store))->status($_GET['id'] ?? null);
+                break;
+            case 'GET:support_logs_download':
+                (new SupportLogs($store))->download($_GET['id'] ?? null);
+                return;
             case 'GET:ndi_status':
             case 'POST:ndi_refresh':
                 session_write_close();

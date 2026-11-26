@@ -52,7 +52,7 @@ configure_panel_updates() {
     # El temporizador ejecuta la copia desplegada. Un git pull solo cambia el checkout.
     for path in updates.sh scripts/{check_updates.py,run_updates.py,panel_release.py,ndi_release.py,ndi_sdk.py,common.sh,ct-network.py,inventory.py,post-install.sh,render.py} \
         scripts/provision/upgrade-software.sh \
-        cts/{adguard,caddy,companion,ndi}/host.sh; do
+        cts/{adguard,caddy,companion,ndi}/host.sh cts/caddy/panel/bin/support-logs.py; do
         install -D -m 0600 -- "$REPO_DIR/$path" "$snapshot/$path" || return
     done
     printf '%s\n' "${FLUGE_UPDATES_CHECKOUT:-$REPO_DIR}" > "$snapshot/checkout" &&

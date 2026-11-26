@@ -39,6 +39,7 @@ check_ct() {
 if [[ "$mode" == jobs ]]; then
     ct_settings caddy
     [[ "$(check_ct)" == available ]] || exit 0
+    PYTHONPATH="$REPO_DIR/scripts" python3 "$REPO_DIR/cts/caddy/panel/bin/support-logs.py" "$CADDY_CT_ID" +        || warn 'No se pudo preparar el ZIP de registros.'
     python3 "$REPO_DIR/scripts/run_updates.py" "$checkout" "$CADDY_CT_ID"
     exit 0
 fi

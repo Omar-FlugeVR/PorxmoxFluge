@@ -236,7 +236,10 @@ async function refreshUpdates() {
       const action = available ? `<button type="button" class="secondary" data-update-role="${role}">Actualizar</button>` : '';
       const status = role === 'panel' && required && entry.status === 'update' ? 'Actualización requerida' : updateStates[entry.status] || 'Pendiente';
       const route = entry.upgradePath?.map(step => step.version).join(' → ');
-      const detail = route || entry.compatibility;
+      const retryAt = new Date(entry.retryAt);
+      const retry = Number.isFinite(retryAt.getTime()) && retryAt > Date.now()
+        ? `Vuelve a intentar a partir de las ${retryAt.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'})}.` : '';
+      const detail = [route || entry.compatibility || entry.remoteError, retry].filter(Boolean).join(' ');
       return `<tr><td><strong>${name}</strong></td><td><code>${esc(updateVersion(role, entry, 'installed'))}</code>${entry.dirty ? '<p class="hint">Con cambios locales</p>' : ''}</td><td><code>${esc(updateVersion(role, entry, 'latest'))}</code></td><td class="${entry.status === 'update' ? 'sync-status' : 'muted'}">${esc(status)}${detail ? `<p class="hint">${esc(detail)}</p>` : ''}</td><td>${action}</td></tr>`;
     }).join('');
     if (rows !== updateRowsMarkup) {
@@ -608,6 +611,38 @@ async function showApplied() {
   $('appliedDns').innerHTML = `<table><thead><tr><th>Nombre DNS</th><th>Dirección DNS</th><th>Redirección · destino y puerto</th></tr></thead><tbody>${data.dns.map(item=>`<tr><td><code>${esc(item.domain)}</code></td><td><code>${esc(item.answer)}</code></td><td>${redirects.has(item.domain) ? `<code>${esc(redirects.get(item.domain))}</code>` : '<span class="muted">Sin redirección · solo DNS</span>'}</td></tr>`).join('')}</tbody></table>`;
   $('appliedCaddy').textContent = data.caddy || 'Todavía no hay reglas aplicadas.'; $('appliedDialog').showModal();
 }
+
+async function downloadLogs() {
+  const button = $('downloadLogs');
+  const status = $('downloadLogsStatus');
+  button.disabled = true;
+  status.hidden = false;
+  status.textContent = 'Preparando el ZIP…';
+  try {
+    let job = await request('support_logs', {method:'POST', timeout:8000});
+    const params = new URLSearchParams({id:job.id});
+    const deadline = Date.now() + 150000;
+    while (job.state === 'queued' && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      job = await request('', {path:`api.php?action=support_logs_status&${params}`, timeout:8000});
+    }
+    if (job.state === 'queued') throw new Error('Proxmox sigue preparando los logs. Vuelve a pulsar Descargar logs en unos instantes.');
+    if (job.state !== 'ready') throw new Error('La solicitud de logs caducó. Vuelve a pulsar Descargar logs.');
+    const response = await fetch(`api.php?action=support_logs_download&${params}`, {signal:AbortSignal.timeout(30000)});
+    if (!response.ok) throw new Error('El ZIP ya no está disponible. Vuelve a descargarlo.');
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || 'fluge-logs.zip';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    status.textContent = 'Descarga iniciada.';
+  } catch (error) {
+    status.textContent = error.name === 'TimeoutError' ? 'El servidor ha tardado demasiado en responder. Vuelve a intentarlo.' : error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
 function openHostService(ip) {
   const host = hosts().find(h => h.ip === ip); const discovered = scanResults.find(h => h.ip === ip);
   const linked = host?.linkedServices || [];
@@ -748,6 +783,7 @@ $('startScan').onclick = guard(scan); $('stopScan').onclick = ()=>runner.cancel(
 $('retryButton').onclick = guard(async event=>{event.target.disabled = true;try{await applyInfrastructure();}finally{event.target.disabled = false;}});
 for (const id of ['showApplied','inspectButton']) $(id).onclick = guard(showApplied);
 $('addUserButton').onclick = ()=>openEditor('user');
+$('downloadLogs').onclick = downloadLogs;
 $('exportButton').onclick = ()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(inventory,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`fluge-inventario-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 $('importButton').onclick = ()=>$('importFile').click();
 $('importFile').onchange = guard(async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>4*1024*1024)throw new Error('La copia supera 4 MiB.');const draft=JSON.parse(await file.text());$('confirmTitle').textContent='Importar inventario';$('confirmText').textContent='Se sustituirán los servicios, equipos y categorías por los de la copia. Los accesos se actualizarán automáticamente.';$('confirmAction').textContent='Importar';$('confirmAction').onclick=guard(async()=>{await saveInventory(draft);$('confirmDialog').close();});$('confirmDialog').showModal();}finally{event.target.value='';}});

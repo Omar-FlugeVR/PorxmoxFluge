@@ -252,3 +252,11 @@ Codex:
     Acciones durante el escaneo y alta inicial del panel — 26/11/2026
     ☑ Desactivar registrar, añadir, editar, actualizar la ficha y eliminar durante el escaneo. Comprobar en Chromium el bloqueo mientras llegan resultados parciales, al cambiar a Equipos o Servicios y su retirada al terminar.
     ☑ Sembrar Servicio de control como equipo y servicio con la IP configurada de Caddy en instalaciones nuevas. Verificado con una red personalizada y con la inicialización PHP del instalador. El acceso directo queda fuera de la exportación de redirecciones.
+
+    Diagnóstico de registros — 26/11/2026
+    ☑ Revisar los registros de Proxmox, los cuatro CTs y el panel. Identificar las rutas, los comandos de consulta y el alcance del historial NDI, los bloqueos de acceso y el estado de actualizaciones a partir del repositorio.
+    ☑ Añadir Descargar logs en Configuración para administradores. Generar un ZIP por carpetas con una lista de registros ausentes y sin incluir archivos de configuración o credenciales. Verificado en HTTP, Chromium y con un doble de Proxmox que simula un CT inaccesible. Pendiente validar en la instalación real.
+
+    Recuperación de la actualización del panel — 26/11/2026
+    ☑ Confirmar en la VM que GitHub bloqueó las consultas con HTTP 403 al agotar la cuota. Verificar tags y manifiestos de las releases y desplegar 0.0.5 → 0.0.6 → 0.0.7 en el CT de Caddy. Comprobar API, Caddy, PHP-FPM, inventario y cuentas. Programar una comprobación puntual a las 00:02 CET después de que se renueve la cuota.
+    ☑ Mostrar el motivo y la hora de reintento en Actualizaciones cuando GitHub comunica que se agotó la cuota. Distinguir también el tiempo de espera agotado. Verificado con dobles de la API y Chromium. Pendiente publicar y desplegar el aviso.

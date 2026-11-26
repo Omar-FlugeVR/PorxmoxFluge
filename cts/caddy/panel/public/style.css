@@ -25,7 +25,6 @@ html:has(#updateOperation[open]){overflow:hidden}
 @keyframes update-progress-sweep{from{transform:translateX(-100%)}to{transform:translateX(225%)}}
 @media(prefers-reduced-motion:reduce){#updateProgress::before{animation:none;transform:translateX(60%)}}
 #ndiRefresh:disabled,#checkUpdates:disabled{cursor:not-allowed;color:var(--text);border-color:var(--border)}
-#inventoryBackupPanel{grid-column:1/-1}
 
 .networks-panel{grid-column:1/-1}.network-list{margin-top:14px}.network-row{display:flex;align-items:center;gap:20px;padding:18px 0;border-bottom:1px solid var(--border)}.network-row:last-child{border-bottom:0}.network-summary{min-width:0}.network-summary strong{display:block;font-size:16px;font-weight:500;overflow-wrap:anywhere}.network-summary>code{display:block;margin:8px 0 0;color:var(--mint)}.network-summary .hint{margin:6px 0 0}.network-row .cell-actions{margin-left:auto;gap:22px}.network-row .edit-button{min-height:36px;padding:8px 0;font-size:14px}.network-row button:disabled{cursor:default}#scanPresets button{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;text-align:left}#scanPresets code{font-size:12px;color:var(--muted)}
 @media(max-width:600px){.network-row{align-items:flex-start;gap:12px}.network-row .cell-actions{gap:14px}#scanPresets button{gap:7px}}

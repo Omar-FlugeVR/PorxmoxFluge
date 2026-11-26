@@ -1,4 +1,5 @@
 import contextlib
+from datetime import datetime, timezone
 from hashlib import sha256
 import io
 import json
@@ -6,6 +7,7 @@ import tempfile
 from pathlib import Path
 import subprocess
 import sys
+import time
 import unittest
 from unittest.mock import call, patch
 from urllib.error import HTTPError
@@ -17,6 +19,22 @@ import run_updates
 
 
 class UpdatesTests(unittest.TestCase):
+    def test_github_quota_error_keeps_installed_versions_and_reports_retry_time(self):
+        reset = int(time.time()) + 300
+        limited = HTTPError(check_updates.GITHUB_API + 'example/panel/releases/latest', 403,
+                            'rate limit exceeded', {'X-RateLimit-Remaining':'0', 'X-RateLimit-Reset':str(reset)}, None)
+        with (patch.object(check_updates, 'github_origin', return_value='example/panel'),
+              patch.object(check_updates, 'get_json', side_effect=limited), contextlib.redirect_stderr(io.StringIO())):
+            entries = [check_updates.compare_panel('.', {'commit':'a' * 40}),
+                       check_updates.compare_product('adguard', 'available', 'v0.107.73'),
+                       check_updates.compare_product('caddy', 'available', 'v2.11.2')]
+        self.assertEqual([entry['installed'] for entry in entries], ['a' * 40, '0.107.73', '2.11.2'])
+        for entry in entries:
+            self.assertEqual(entry['status'], 'unknown_remote')
+            self.assertIsNone(entry['latest'])
+            self.assertIn('GitHub', entry['remoteError'])
+            self.assertEqual(entry['retryAt'], datetime.fromtimestamp(reset, timezone.utc).isoformat())
+
     def test_worker_accepts_only_versions_for_known_components(self):
         job = {'id': 'd' * 32, 'role': 'panel', 'version': 'b' * 40, 'created': 10}
         self.assertTrue(run_updates.valid_request(job, 11))
