@@ -9,27 +9,19 @@ Instalador Bash para desplegar **cuatro CTs Debian 12 en Proxmox: AdGuard Home, 
 | Bitfocus Companion, ID 112 | 2 vCPU, 2048 MiB RAM, disco 8 GiB | `192.168.1.15` | `onboot=1`, orden 3, espera 15 s |
 | NDI Discovery Service, ID 113 | 1 vCPU, 512 MiB RAM, disco 4 GiB | `192.168.1.16` | `onboot=1`, orden 4, espera 15 s |
 
-Los cuatro son **unprivileged**, sin nesting ni privilegios añadidos. En Proxmox, **CT es el nombre de un contenedor LXC**: aquí equivale a un Debian independiente con su aplicación dentro. No se ejecutan contenedores adicionales dentro de los CTs. Proxmox VE es el host y no ocupa un quinto CT.
+Los cuatro se crean como **unprivileged**, con `nesting=1` para que systemd pueda aislar los servicios de Debian 12. En Proxmox, **CT es el nombre de un contenedor LXC**: aquí equivale a un Debian independiente con su aplicación dentro. No se ejecutan contenedores adicionales dentro de los CTs. Proxmox VE es el host y no ocupa un quinto CT.
 
 ## 1. Preparar el host y el repositorio
 
 Necesitas un Proxmox VE operativo sobre **amd64**, acceso `root`, salida a Internet, al menos un puente Linux y una IP libre fuera del rango DHCP por NIC. Los CTs siempre usan Debian 12, aunque el host use otra versión de Debian. El almacenamiento de plantillas debe admitir `vztmpl` y el de discos, `rootdir`.
 
-Si quieres que la tecla ↑ de la consola de instalación empiece con una lista vacía, abre primero una sesión Bash temporal en el host.
-
-```bash
-HISTFILE=/dev/null bash --noprofile --norc +o history -i
-```
-
-Ejecuta los pasos de instalación dentro de esa sesión y vuelve a la consola habitual con `exit`. La sesión temporal conserva el historial guardado de tu cuenta. Los comandos que el instalador ejecuta dentro de los CTs ya se ejecutan en sesiones no interactivas.
-
-En la terminal del **host**, instala las herramientas si faltan:
+En un Proxmox recién instalado, **instala Git antes de ejecutar `git clone`**. Pega el bloque completo en el Shell del nodo como `root`.
 
 ```bash
 apt-get update
-apt-get install -y git curl ca-certificates python3
-git clone https://github.com/Omar-FlugeVR/PorxmoxFluge.git fluge-proxmox
-cd fluge-proxmox
+apt-get install -y git curl ca-certificates python3 &&
+git clone https://github.com/Omar-FlugeVR/PorxmoxFluge.git fluge-proxmox &&
+cd fluge-proxmox &&
 ./install.sh
 ```
 
@@ -268,7 +260,7 @@ Permite desde la LAN `53/UDP` y `53/TCP` hacia AdGuard, `80/TCP` hacia AdGuard y
 
 ## Reejecuciones, copias y recuperación
 
-Nunca se invoca `pct destroy`. Si un CT existe, el instalador avisa y permite omitirlo o actualizar su configuración, comprobando su identidad de red antes de arrancarlo y sus servicios antes de aplicar cambios. No vuelve a ejecutar los instaladores de AdGuard, Companion ni NDI sobre CTs preexistentes. La publicación del panel en Caddy añade sus dependencias PHP-FPM, cURL, Python, Avahi y sudo si faltan; fija `FLUGE_DEMO=0` y `NDI_MOCK=false`, y excluye el router de desarrollo del paquete instalado. Los nombres de host, recursos, arranque y red solo se establecen al crear CTs.
+Nunca se invoca `pct destroy`. Si un CT existe, el instalador avisa y permite omitirlo o actualizar su configuración, comprobando su identidad de red antes de arrancarlo y sus servicios antes de aplicar cambios. No vuelve a ejecutar los instaladores de AdGuard, Companion ni NDI sobre CTs preexistentes. La publicación del panel en Caddy añade sus dependencias PHP-FPM, cURL, Python, Avahi y sudo si faltan; fija `FLUGE_DEMO=0` y `NDI_MOCK=false`, y excluye el router de desarrollo del paquete instalado. Los nombres de host, recursos, arranque, red y `nesting` solo se establecen al crear CTs.
 
 Antes de sustituir archivos, se valida la configuración y se conserva la anterior dentro de cada CT:
 

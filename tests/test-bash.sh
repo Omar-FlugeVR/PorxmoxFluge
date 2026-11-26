@@ -44,10 +44,10 @@ TEMPLATE_VOLID=local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst
     done
 )
 [[ "$(wc -l < "$calls_file" | tr -d ' ')" == 4 ]]
-grep -q 'create 110 .*--unprivileged 1 --cores 1 --memory 512.*--rootfs local-lvm:4' "$calls_file"
-grep -q 'create 111 .*--unprivileged 1 --cores 1 --memory 512.*--rootfs local-lvm:4' "$calls_file"
-grep -q 'create 112 .*--unprivileged 1 --cores 2 --memory 2048.*--rootfs local-lvm:8' "$calls_file"
-grep -q 'create 113 .*--unprivileged 1 --cores 1 --memory 512.*--rootfs local-lvm:4' "$calls_file"
+grep -q 'create 110 .*--unprivileged 1 --features nesting=1 --cores 1 --memory 512.*--rootfs local-lvm:4' "$calls_file"
+grep -q 'create 111 .*--unprivileged 1 --features nesting=1 --cores 1 --memory 512.*--rootfs local-lvm:4' "$calls_file"
+grep -q 'create 112 .*--unprivileged 1 --features nesting=1 --cores 2 --memory 2048.*--rootfs local-lvm:8' "$calls_file"
+grep -q 'create 113 .*--unprivileged 1 --features nesting=1 --cores 1 --memory 512.*--rootfs local-lvm:4' "$calls_file"
 (
     export COMPANION_NICS='[{"bridge":"vmbr0","ip":"192.168.1.15/24","gateway":"192.168.1.1","vlan":"20"},{"bridge":"vmbr1","ip":"10.9.0.15/24","gateway":"","vlan":"30"}]'
     create_ct companion

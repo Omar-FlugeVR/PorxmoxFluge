@@ -272,7 +272,7 @@ create_ct() {
         umask 022
         pct create "$CT_ID" "$TEMPLATE_VOLID" \
             --ostype debian --arch amd64 --hostname "$CT_HOSTNAME" \
-            --unprivileged 1 --cores "$CT_CORES" --memory "$CT_RAM" --swap 0 \
+            --unprivileged 1 --features nesting=1 --cores "$CT_CORES" --memory "$CT_RAM" --swap 0 \
             --rootfs "$DISK_STORAGE:$CT_DISK" --onboot 1 --startup "order=$CT_ORDER,up=15" \
             "${options[@]}" \
             --nameserver "$BOOTSTRAP_DNS" --searchdomain "$BASE_DOMAIN" \

@@ -200,3 +200,13 @@ Codex:
     ☑ Revisar los archivos candidatos y el historial local en busca de credenciales y artefactos. Confirmar que config.env, .secrets, SDK, generados y cachés quedan fuera de Git. Validar la configuración de ejemplo y Caddy desde una copia temporal de los archivos que se pueden publicar.
     ☑ Corregir la comparación de versiones para exigir separadores de punto y restaurar también los archivos auxiliares de Caddy si falla el despliegue. Reducir la salida rutinaria de la cola de actualizaciones cuando no hay solicitudes. Pasaron las pruebas locales, incluido el fallo simulado de validación y de traslado del panel anterior. Pendiente el ciclo en Proxmox.
     ☑ Documentar dónde se guardan el commit desplegado, el informe de versiones, la caché del SDK de NDI y las copias de actualización.
+
+    Secuencia de instalación en Bash — 26/11/2026
+    ☑ Simplificar el README a un solo bloque de instalación. Retirar la sesión temporal manual al comprobar que install.sh se ejecuta en un proceso propio y que apt-get y git clone se lanzan desde el Shell del nodo antes del asistente.
+    ☑ Destacar la instalación de Git en Proxmox limpio y encadenar el clon y el asistente tras la instalación correcta de las herramientas.
+
+    Salida a Internet de la VM recién instalada — 26/11/2026
+    ☑ Localizar en el registro los tiempos de espera TCP hacia los repositorios Debian y Proxmox antes de instalar Git. Confirmar desde Windows que los repositorios públicos de Debian responden y que la VM está en el Default Switch, cuya interfaz del host usa 172.19.160.1/20. Pendiente comprobar la ruta de salida dentro de la VM.
+
+    Creación de CTs con nesting — 26/11/2026
+    ☑ Activar nesting=1 al crear los cuatro CTs Debian 12 para el aislamiento de servicios de systemd. Verificar con dobles de Proxmox que los cuatro comandos pct create incluyen la opción y que siguen creando CTs sin privilegios. Pasaron las pruebas Bash y ShellCheck. Pendiente comprobar el aviso de systemd en Proxmox.
