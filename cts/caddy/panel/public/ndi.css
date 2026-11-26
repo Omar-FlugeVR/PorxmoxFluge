@@ -9,6 +9,8 @@
 .ndi-test-result { white-space: pre-line; overflow-wrap: anywhere; margin: 18px 0 0; line-height: 1.7; }
 .ndi-test-result.success { color: var(--mint); }
 .ndi-test-result.warning, .ndi-warning { color: var(--warning); }
+.ndi-runtime-action { margin: 12px 0 4px; }
+#ndiRuntimeLicense, #updateDialogLicense { max-height: 45vh; overflow: auto; }
 .ndi-overview-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .ndi-state { display: inline-flex; padding: 7px 12px; border: 1px solid var(--border); font-size: 16px; }
 .ndi-state.online { color: var(--mint); border-color: #507e76; background: #1c312b; }

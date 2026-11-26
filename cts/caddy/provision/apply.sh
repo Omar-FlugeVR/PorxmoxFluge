@@ -10,19 +10,20 @@ was_active=0
 had_config=0
 had_routes=0
 had_app=0
+published_app=0
+panel_system_files=(/etc/fluge-control/site.json /etc/sudoers.d/fluge-control /usr/local/sbin/fluge-control-apply-routes)
 rollback() {
-    local status="$?"
+    local status="$?" file
     trap - EXIT
     if [[ "$status" != 0 && "$changed" == 1 ]]; then
         printf '[ERROR] Restaurando Caddy desde %s\n' "$backup" >&2
         if [[ "$had_config" == 1 ]]; then cp -p -- "$backup/Caddyfile" /etc/caddy/Caddyfile; else rm -f -- /etc/caddy/Caddyfile; fi
         if [[ "$had_routes" == 1 ]]; then cp -p -- "$backup/routes.caddy" /etc/caddy/studio-routes.caddy; else rm -f -- /etc/caddy/studio-routes.caddy; fi
-        if [[ "$had_app" == 1 ]]; then
-            if [[ -d /opt/fluge-control ]]; then mv -- /opt/fluge-control "$stage/failed-panel"; fi
-            mv -- "$backup/panel" /opt/fluge-control
-        elif [[ -d /opt/fluge-control ]]; then
-            mv -- /opt/fluge-control "$stage/failed-panel"
-        fi
+        if [[ "$published_app" == 1 ]]; then mv -- /opt/fluge-control "$stage/failed-panel"; fi
+        if [[ "$had_app" == 1 ]]; then mv -- "$backup/panel" /opt/fluge-control; fi
+        for file in "${panel_system_files[@]}"; do
+            if [[ -e "$backup/${file##*/}" ]]; then cp -p -- "$backup/${file##*/}" "$file"; else rm -f -- "$file"; fi
+        done
         systemctl reload php8.2-fpm || true
         if [[ "$was_active" == 1 ]]; then
             systemctl reload caddy || systemctl restart caddy || printf '[ERROR] Revisa journalctl -u caddy.\n' >&2
@@ -36,8 +37,11 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 mkdir -- "$stage/panel"
 tar -xf "$stage/panel.tar" -C "$stage/panel" --no-same-owner
+install -m 0644 "$stage/ndi_sdk.py" "$stage/panel/deploy/ndi_sdk.py"
+install -m 0644 "$stage/revision.json" "$stage/panel/revision.json"
 find "$stage/panel" -type d -exec chmod 0755 {} +
 find "$stage/panel" -type f -exec chmod 0644 {} +
+chmod 0755 "$stage/panel/deploy/install-ndi-runtime.py"
 # El código temporal es legible, pero todos los JSON con credenciales siguen en 0600.
 chmod 0755 "$stage"
 python3 - "$stage" <<'PY' | runuser -u www-data -- php "$stage/panel/bin/initialize.php" /var/lib/fluge-control --stdin
@@ -59,11 +63,15 @@ install -d -m 0700 /var/backups/studio-infra/caddy
 backup="$(mktemp -d /var/backups/studio-infra/caddy/change-XXXXXXXX)"
 if [[ -e /etc/caddy/Caddyfile ]]; then cp -p -- /etc/caddy/Caddyfile "$backup/Caddyfile"; had_config=1; fi
 if [[ -e /etc/caddy/studio-routes.caddy ]]; then cp -p -- /etc/caddy/studio-routes.caddy "$backup/routes.caddy"; had_routes=1; fi
+for file in "${panel_system_files[@]}"; do
+    if [[ -e "$file" ]]; then cp -p -- "$file" "$backup/${file##*/}"; fi
+done
 if systemctl is-active --quiet caddy; then was_active=1; fi
 install -d -m 0755 /etc/caddy /opt
 changed=1
 if [[ -d /opt/fluge-control ]]; then mv -- /opt/fluge-control "$backup/panel"; had_app=1; fi
 mv -- "$stage/panel" /opt/fluge-control
+published_app=1
 chown -R root:root /opt/fluge-control
 python3 - "$stage/config.json" <<'PY'
 import json, pathlib, sys
@@ -72,7 +80,8 @@ pathlib.Path('/etc/fluge-control/site.json').write_text(json.dumps({'dashboardDo
 PY
 chmod 0644 /etc/fluge-control/site.json
 install -m 0755 /opt/fluge-control/deploy/apply-routes.py /usr/local/sbin/fluge-control-apply-routes
-printf '%s\n' 'www-data ALL=(root) NOPASSWD: /usr/local/sbin/fluge-control-apply-routes ""' > "$stage/sudoers"
+printf '%s\n' 'www-data ALL=(root) NOPASSWD: /usr/local/sbin/fluge-control-apply-routes ""' \
+    'www-data ALL=(root) NOPASSWD: /opt/fluge-control/deploy/install-ndi-runtime.py ""' > "$stage/sudoers"
 visudo -cf "$stage/sudoers"
 install -m 0440 "$stage/sudoers" /etc/sudoers.d/fluge-control
 install -m 0644 -o root -g caddy "$stage/Caddyfile" /etc/caddy/.Caddyfile.studio-new

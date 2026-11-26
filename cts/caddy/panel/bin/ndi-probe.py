@@ -40,16 +40,20 @@ class LibraryUnavailable(Exception):
     pass
 
 
+class RuntimeMissing(LibraryUnavailable):
+    pass
+
+
 def load_library():
     override = os.environ.get('NDI_LIBRARY_PATH')
-    candidates = [override] if override else [ctypes.util.find_library('ndi'),
-                  '/opt/ndi-runtime/lib/libndi.so.6', '/opt/ndi-runtime/lib/libndi.so.5', 'libndi.so.6', 'libndi.so.5', 'libndi.so']
+    candidates = [override] if override else ['/opt/ndi-runtime/lib/libndi.so.6', ctypes.util.find_library('ndi'),
+                  '/opt/ndi-runtime/lib/libndi.so.5', 'libndi.so.6', 'libndi.so.5', 'libndi.so']
     for candidate in dict.fromkeys(filter(None, candidates)):
         try:
             return ctypes.CDLL(candidate)
         except OSError:
             pass
-    raise LibraryUnavailable('Falta libndi para listar fuentes. Instala el runtime oficial NDI en el CT del panel; consulta el README.')
+    raise RuntimeMissing('Falta libndi para consultar fuentes y receptores en el CT del panel.')
 
 
 def source_details(name, address):
@@ -161,6 +165,7 @@ def probe(settings):
     try:
         result.update(enumerate_sources(settings, started + settings['timeout'],with_receivers=True))
     except (LibraryUnavailable, AttributeError, OSError) as error:
+        result['runtime_missing'] = isinstance(error, RuntimeMissing)
         result['warning'] = str(error) if isinstance(error, LibraryUnavailable) else 'libndi no es compatible o le faltan dependencias. Revisa la instalación del runtime en el README.'
     return result
 

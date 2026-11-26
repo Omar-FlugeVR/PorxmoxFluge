@@ -82,8 +82,11 @@ require_proxmox() {
     need_commands pct pveam pvesm pvesh pveversion ip flock
     [[ -d /etc/pve/local ]] || die 'No se encuentra /etc/pve/local: no parece un host Proxmox VE operativo.'
     pveversion
-    exec 9>/run/lock/studio-infra.lock
-    flock -n 9 || die 'Ya hay otra instalación o sincronización en curso.'
+    # El proceso de actualización puede conservar este mismo bloqueo al invocar sync.sh.
+    if [[ ! /proc/$$/fd/9 -ef /run/lock/studio-infra.lock ]]; then
+        exec 9>/run/lock/studio-infra.lock
+    fi
+    flock -w "${1:-0}" 9 || die 'Ya hay otra instalación, sincronización o comprobación en curso.'
     TEMP_DIR="$(mktemp -d -t studio-infra.XXXXXXXX)"
 }
 

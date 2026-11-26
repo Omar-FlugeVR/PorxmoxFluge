@@ -98,7 +98,17 @@ Referencias primarias: [NDI-FIND](https://docs.ndi.video/all/developing-with-ndi
 
 La biblioteca debe estar en el **CT del panel/Caddy**, aunque Discovery Server se ejecute en otro CT. El despliegue instala automáticamente Python 3 y las bibliotecas Avahi necesarias junto con PHP-FPM. El runtime NDI sigue siendo opcional; su ausencia genera el fallback TCP.
 
-Como `root` en el CT del panel amd64, descarga el SDK oficial y ejecuta su instalador para leer y aceptar su licencia en la terminal:
+Si aparece **Online** junto a **Falta libndi**, la latencia corresponde a la conexión TCP al servidor. En ese caso las fuentes y los receptores aparecen como pendientes de comprobar. Para detectar receptores anunciados, utiliza un runtime y un Discovery Server compatibles con NDI 6.2 o posterior.
+
+Con una cuenta administradora, pulsa **Instalar runtime NDI** junto al aviso. El CT del panel descarga el SDK oficial y muestra su licencia. Cuando aceptas, el instalador prepara Avahi y publica `libndi` en `/opt/ndi-runtime/lib`. El panel vuelve a comprobar la conexión al terminar. En modo muestra, este flujo usa una licencia de ejemplo y datos simulados.
+
+El mismo instalador se puede ejecutar como `root` en la consola del CT del panel Debian amd64:
+
+```bash
+/opt/fluge-control/deploy/install-ndi-runtime.py --interactive
+```
+
+Si el panel es de una revisión anterior, puedes instalar manualmente con el SDK oficial desde la consola del CT:
 
 ```bash
 apt-get update

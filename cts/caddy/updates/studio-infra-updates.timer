@@ -1,0 +1,10 @@
+[Unit]
+Description=Comprobar cada hora si hay actualizaciones para Servicio de control
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=1min
+
+[Install]
+WantedBy=timers.target

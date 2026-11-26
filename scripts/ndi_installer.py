@@ -8,30 +8,12 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tarfile
 
-from inventory import ConfigError, DEFAULT_NDI_INSTALLER_URL
+from inventory import ConfigError
+from ndi_sdk import DEFAULT_NDI_INSTALLER_URL, SdkError, display_license, extract_installer, read_license
 
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def extract_installer(package, installer):
-    with package.open("rb") as stream:
-        is_script = stream.read(2) == b"#!"
-    if is_script:
-        package.replace(installer)
-        return
-    try:
-        with tarfile.open(package, "r:gz") as archive:
-            scripts = [member for member in archive if member.isfile() and member.name.endswith(".sh")]
-            if len(scripts) != 1:
-                raise ConfigError("El archivo NDI debe contener un único instalador oficial .sh")
-            with archive.extractfile(scripts[0]) as stream, installer.open("xb") as target:
-                shutil.copyfileobj(stream, target)
-    except (tarfile.TarError, EOFError) as exc:
-        raise ConfigError("No se ha podido leer el paquete oficial de NDI") from exc
-    package.unlink()
 
 
 def prepare_installer(stage, config):
@@ -55,23 +37,20 @@ def prepare_installer(stage, config):
             with package.open("rb") as stream:
                 if hashlib.file_digest(stream, "sha256").hexdigest() != expected:
                     raise ConfigError("El instalador de NDI no coincide con NDI_INSTALLER_SHA256")
-        extract_installer(package, installer)
-
-    with installer.open("rb") as stream:
-        header = stream.read(1024 * 1024).split(b"\n__NDI_ARCHIVE_BEGIN__\n", 1)[0]
-    _, start, body = header.partition(b"<< NDI_EULA_END\n")
-    license_text, end, _ = body.partition(b"\nNDI_EULA_END\n")
-    if not start or not end or not license_text.strip():
-        raise ConfigError("No se ha encontrado el texto de la licencia en el instalador de NDI")
+        try:
+            extract_installer(package, installer)
+        except SdkError as exc:
+            raise ConfigError(str(exc)) from exc
+    try:
+        license_text = read_license(installer)
+    except SdkError as exc:
+        raise ConfigError(str(exc)) from exc
     digest = hashlib.sha256(license_text).hexdigest()
     if digest == config.get("NDI_LICENSE_SHA256", "").lower():
         return digest
     if not sys.stdin.isatty():
         raise ConfigError("La licencia de NDI es nueva o ha cambiado. Revísala y acéptala desde una terminal interactiva.")
-    try:
-        text = license_text.decode("utf-8")
-    except UnicodeDecodeError:
-        text = license_text.decode("cp1252", errors="replace")
+    text = display_license(license_text)
     print(f"\nLicencia del instalador oficial de NDI\n\n{text}\n", file=sys.stderr)
     print("¿Aceptas la licencia de NDI? [s/N] ", end="", file=sys.stderr, flush=True)
     if sys.stdin.readline().strip().casefold() not in {"s", "sí", "si", "y", "yes"}:

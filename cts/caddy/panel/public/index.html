@@ -36,6 +36,7 @@
       <button data-view="devices"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 21h8m-4-5v5"/></svg>Equipos <span id="deviceCount">0</span></button>
       <button data-view="scan" data-admin><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="m12 12 7-7"/><circle cx="12" cy="12" r="1"/></svg>Escaneo</button>
       <button data-view="ndi" id="ndiTab" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3Z"/></svg>NDI Discovery</button>
+      <button data-view="updates" data-admin hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>Actualizaciones</button>
       <button data-view="settings" data-admin><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></svg>Configuración</button>
     </nav>
     <div id="feedback" class="feedback" role="status" aria-live="polite" hidden></div>
@@ -60,10 +61,18 @@
       <div class="section-heading"><h2>NDI Discovery</h2><span id="ndiMockBadge" class="demo-badge" hidden>Simulación NDI</span></div>
       <div class="panel ndi-overview"><div class="ndi-overview-heading"><span id="ndiState" class="ndi-state">Sin comprobar</span><button id="ndiRefresh" class="secondary">Actualizar</button></div><div class="ndi-metrics"><div><span>Servidor</span><strong id="ndiServer">—</strong></div><div><span>Latencia TCP</span><strong id="ndiLatency">—</strong></div><div><span>Emisores detectados</span><strong id="ndiSourceCount">—</strong></div><div><span>Receptores detectados</span><strong id="ndiReceiverCount">—</strong></div><div><span>Última actualización</span><strong id="ndiUpdated">Pendiente de consulta</strong></div></div><p id="ndiServerSeen" class="hint"></p></div>
       <p id="ndiWarning" class="ndi-warning" role="status" hidden></p>
+      <button id="ndiInstallFromView" type="button" class="secondary ndi-runtime-action" hidden>Instalar runtime NDI</button>
       <div class="toolbar ndi-toolbar"><label class="grow">Buscar equipos NDI<input id="ndiSearch" type="search" placeholder="Equipo, fuente o dirección…"></label><span id="ndiResultsCount" class="muted">0 registros</span></div>
       <div id="ndiDirections" class="chips" aria-label="Función NDI"><button class="selected" data-ndi-direction="all">Todos</button><button data-ndi-direction="sender">Emisores</button><button data-ndi-direction="receiver">Receptores</button></div><p id="ndiReceiverNote" class="hint"></p>
       <div id="ndiSources" class="table-wrap"></div>
       <div class="panel ndi-log-panel"><div class="ndi-log-heading"><h3>Registro de actividad</h3><span id="ndiEventCount" class="muted">0 eventos</span><button id="ndiClearLog" class="secondary" data-admin disabled>Limpiar registro</button></div><p class="hint">Altas, desapariciones y recuperaciones observadas. «No visible» no confirma que el equipo esté apagado. El historial se actualiza solo mientras se consulta el monitor.</p><ol id="ndiEvents" class="ndi-events" aria-label="Historial NDI"></ol></div>
+    </section>
+    <section id="updatesView" hidden>
+      <div class="section-heading"><h2>Actualizaciones</h2><button id="reloadUpdates" class="secondary">Recargar informe</button></div>
+      <p class="hint">Proxmox consulta las versiones cada hora. Aplica las actualizaciones cuando tengas una ventana de mantenimiento.</p>
+      <p id="updatesCheckedAt" class="sync-status" role="status"></p>
+      <p id="updateJobStatus" class="sync-status" role="status" hidden></p>
+      <div class="table-wrap"><table><thead><tr><th scope="col">Servicio</th><th scope="col">Instalada</th><th scope="col">Publicada</th><th scope="col">Estado</th><th scope="col">Cambios</th><th scope="col">Acción</th></tr></thead><tbody id="updatesRows"></tbody></table></div>
     </section>
     <section id="settings" hidden>
       <div class="section-heading"><h2>Configuración</h2><span class="muted" id="panelDomain"></span></div>
@@ -71,7 +80,17 @@
         <form id="installationForm" class="panel installation-panel"><h3>Instalación</h3><p class="hint">El nombre aparecerá debajo de «Servicio de control» en la cabecera.</p><div class="installation-form-row"><label>Nombre de la instalación<input name="installationName" maxlength="80" autocomplete="off" placeholder="Por ejemplo, Estudio principal"></label><button type="submit" class="primary">Guardar nombre</button></div></form>
         <div class="panel categories-panel"><div class="categories-heading"><div><h3>Categorías</h3><p class="hint">Organiza los servicios y equipos. Los cambios se reflejan en los filtros y formularios del panel.</p></div><button id="addCategoryButton" class="secondary">Añadir categoría</button></div><div id="categoryList" class="category-list"></div></div>
         <div class="panel networks-panel"><div class="categories-heading"><div><h3>Redes y escaneo</h3><p class="hint">Cada red tiene su nombre, CIDR y pool DHCP opcional. Aparecerán como presets en Escaneo. Los pools son informativos y no configuran el router.</p></div><button id="addNetworkButton" class="secondary">Añadir red</button></div><div id="networkList" class="network-list"></div></div>
-        <form id="ndiForm" class="panel ndi-settings-panel"><div class="categories-heading"><div><h3>NDI Discovery Server</h3><p class="hint">Monitorización opcional del servidor y de las fuentes detectadas. Desactivar guarda el cambio y detiene las consultas.</p></div><label class="ndi-toggle"><input id="ndiEnabled" name="enabled" type="checkbox" role="switch"><span id="ndiToggleLabel">Disable</span></label></div><fieldset id="ndiFields" hidden disabled><div class="form-row"><label>IP / Host<input name="ip" placeholder="192.168.10.20" maxlength="253" required autocomplete="off"></label><label>Puerto<input name="port" type="number" value="5959" min="1" max="65535" step="1" required></label></div><div class="form-row"><label>Polling rate (segundos)<input name="polling_rate" type="number" value="5" min="2" max="300" step="1" required></label><label>Timeout de conexión (segundos)<input name="timeout" type="number" value="3" min="1" max="15" step="1" required></label></div><label>Grupos NDI<input name="groups" placeholder="Public,camaras" maxlength="2048"></label><p class="hint">Separados por comas. Vacío usa los grupos por defecto del SDK (habitualmente Public).</p><label id="ndiMockField" hidden>Escenario de simulación<select name="mock_scenario"><option value="normal">Normal / Online</option><option value="offline">Offline / Timeout</option><option value="empty">0 fuentes</option><option value="missing_lib">Aviso sin libndi</option></select></label><button type="button" id="ndiTest" class="secondary">Probar conexión</button><p id="ndiTestResult" class="ndi-test-result" role="status" hidden></p></fieldset><div class="button-row"><button type="submit" id="ndiSave" class="primary">Guardar</button></div></form>
+        <form id="ndiForm" class="panel ndi-settings-panel">
+          <div class="categories-heading"><div><h3>NDI Discovery Server</h3><p class="hint">Monitorización opcional del servidor y de las fuentes detectadas. Desactivar guarda el cambio y detiene las consultas.</p></div><label class="ndi-toggle"><input id="ndiEnabled" name="enabled" type="checkbox" role="switch"><span id="ndiToggleLabel">Disable</span></label></div>
+          <fieldset id="ndiFields" hidden disabled>
+            <div class="form-row"><label>IP / Host<input name="ip" placeholder="192.168.10.20" maxlength="253" required autocomplete="off"></label><label>Puerto<input name="port" type="number" value="5959" min="1" max="65535" step="1" required></label></div>
+            <div class="form-row"><label>Polling rate (segundos)<input name="polling_rate" type="number" value="5" min="2" max="300" step="1" required></label><label>Timeout de conexión (segundos)<input name="timeout" type="number" value="3" min="1" max="15" step="1" required></label></div>
+            <label>Grupos NDI<input name="groups" placeholder="Public,camaras" maxlength="2048"></label><p class="hint">Separados por comas. Vacío usa los grupos por defecto del SDK (habitualmente Public).</p><label id="ndiMockField" hidden>Escenario de simulación<select name="mock_scenario"><option value="normal">Normal / Online</option><option value="offline">Offline / Timeout</option><option value="empty">0 fuentes</option><option value="missing_lib">Aviso sin libndi</option></select></label>
+            <button type="button" id="ndiTest" class="secondary">Probar conexión</button><p id="ndiTestResult" class="ndi-test-result" role="status" hidden></p>
+            <button id="ndiInstallFromTest" type="button" class="secondary ndi-runtime-action" hidden>Instalar runtime NDI</button>
+          </fieldset>
+          <div class="button-row"><button type="submit" id="ndiSave" class="primary">Guardar</button></div>
+        </form>
         <form id="integrationForm" class="panel"><h3>Conexión con AdGuard</h3><p class="hint">Publica los nombres DNS de los servicios que gestiones aquí.</p><label>Dirección de AdGuard<input name="adguardUrl" type="url" placeholder="http://192.168.1.11" required></label><label>Usuario<input name="adguardUser" autocomplete="off" required></label><label>Contraseña<input name="adguardPass" type="password" autocomplete="new-password" placeholder="Vacío para conservar la actual"></label><button class="primary" type="submit">Guardar conexión</button></form>
         <div class="panel"><h3>Estado de los accesos</h3><p class="hint">Los cambios se guardan y los accesos se actualizan automáticamente.</p><p id="syncStatus" class="sync-status">Actualización automática</p><div class="button-row"><button id="retryButton" class="secondary" hidden>Reintentar actualización</button><button id="inspectButton" class="secondary" hidden>Ver reglas de la muestra</button></div></div>
         <div class="panel" id="inventoryBackupPanel"><h3>Copia del inventario</h3><p class="hint">Exporta servicios, equipos y categorías. Las credenciales y los usuarios se conservan aparte en el servidor.</p><div class="button-row"><button id="exportButton" class="secondary">Exportar JSON</button><button id="importButton" class="secondary">Importar JSON</button><input id="importFile" type="file" accept="application/json,.json" hidden></div></div>
@@ -85,6 +104,20 @@
   <dialog id="categoryDeleteDialog"><form id="categoryDeleteForm"><div class="dialog-heading"><h2>Eliminar categoría</h2><button type="button" data-close class="icon-button" aria-label="Cerrar">×</button></div><p id="categoryDeleteText" class="hint"></p><label id="categoryReplacementField">Mover servicios y equipos a<select name="replacementId" id="categoryReplacement"></select></label><p id="categoryDeleteError" class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" data-close class="quiet">Cancelar</button><button type="submit" class="danger">Eliminar categoría</button></div></form></dialog>
   <dialog id="confirmDialog"><div class="dialog-heading"><h2 id="confirmTitle">Confirmar</h2><button data-close class="icon-button" aria-label="Cerrar">×</button></div><p id="confirmText"></p><div class="dialog-actions"><button data-close class="quiet">Cancelar</button><button id="confirmAction" class="danger">Eliminar</button></div></dialog>
   <dialog id="appliedDialog" class="wide-dialog"><div class="dialog-heading"><h2>Reglas aplicadas en la muestra</h2><button data-close class="icon-button" aria-label="Cerrar">×</button></div><p class="hint">Este resultado se guarda localmente. No se envía a tu red.</p><h3>AdGuard · nombres DNS</h3><div id="appliedDns" class="table-wrap"></div><h3>Caddy · redirecciones HTTP 302</h3><pre id="appliedCaddy"></pre></dialog>
+  <dialog id="ndiRuntimeDialog" class="wide-dialog" aria-labelledby="ndiRuntimeTitle">
+    <div class="dialog-heading"><h2 id="ndiRuntimeTitle">Instalar runtime NDI</h2></div>
+    <p id="ndiRuntimeProgress" class="hint" role="status"></p>
+    <pre id="ndiRuntimeLicense" tabindex="0" aria-label="Licencia del SDK de NDI" hidden></pre>
+    <p id="ndiRuntimeError" class="form-error" role="alert"></p>
+    <div class="dialog-actions"><button id="ndiRuntimeCancel" type="button" data-close class="quiet">Cancelar</button><button id="ndiRuntimeAccept" type="button" class="primary" disabled>Aceptar licencia e instalar</button></div>
+  </dialog>
+  <dialog id="updateDialog" class="wide-dialog" aria-labelledby="updateDialogTitle">
+    <div class="dialog-heading"><h2 id="updateDialogTitle">Actualizar servicio</h2></div>
+    <p id="updateDialogText" class="hint"></p>
+    <pre id="updateDialogLicense" tabindex="0" aria-label="Licencia del SDK de NDI" hidden></pre>
+    <p id="updateDialogError" class="form-error" role="alert"></p>
+    <div class="dialog-actions"><button type="button" id="updateCancel" data-close class="quiet">Cancelar</button><button type="button" id="updateAccept" class="primary">Actualizar</button></div>
+  </dialog>
   <noscript><p>Activa JavaScript para gestionar el panel.</p></noscript>
 </body>
 </html>

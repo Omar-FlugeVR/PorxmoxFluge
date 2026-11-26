@@ -60,6 +60,26 @@ try {
   await fill('#loginForm [name=username]','admin');await fill('#loginForm [name=password]','FlugeDemo2026');
   await click('#loginForm button[type=submit]');
   await waitFor(`!document.getElementById('app').hidden && document.querySelectorAll('.service-card').length === 4`);
+  await click('[data-view=updates]');
+  await waitFor(`document.querySelectorAll('#updatesRows tr').length === 5`);
+  assert(await evaluate(`document.getElementById('updatesCheckedAt').textContent.includes('Pendiente')`), 'Missing update report should be shown as pending');
+  if (stateDirectory) {
+    fs.writeFileSync(path.join(stateDirectory, 'updates.json'), JSON.stringify({checkedAt:new Date().toISOString(),services:{
+      panel:{installed:'a'.repeat(40),latest:'b'.repeat(40),status:'update',canUpdate:true},
+      companion:{installed:'5.1.3',latest:'5.1.3',status:'current'},
+      ndi:{installed:'SDK 6.3.1',status:'manual'},
+    }}));
+    await click('#reloadUpdates');
+    await waitFor(`document.getElementById('updatesRows').textContent.includes('Actualización disponible')`);
+    assert(await evaluate(`document.getElementById('updatesRows').textContent.includes('aaaaaaaa')&&document.getElementById('updatesRows').textContent.includes('Revisión manual')`), 'Update report should identify deployed commit and manual NDI review');
+    await click('[data-update-role=panel]');
+    await waitFor(`document.getElementById('updateDialog').open`);
+    await click('#updateCancel');
+    assert(await evaluate(`!document.getElementById('updateDialog').open&&!document.querySelector('[data-update-role=panel]').disabled`), 'Cancelling must leave the selected update available');
+    await click('[data-update-role=panel]');await click('#updateAccept');
+    await waitFor(`document.getElementById('updateJobStatus').textContent.includes('Actualización completada')&&document.querySelector('[data-update-role=panel]').disabled`);
+  }
+  await click('[data-view=services]');
   assert(await evaluate(`document.getElementById('scanRange').value==='192.168.1.0/24'&&document.querySelector('[data-all-networks]').classList.contains('selected')`),'Scanner must initially select all configured networks');
   assert(await evaluate(`document.getElementById('applyButton') === null && document.getElementById('retryButton').hidden`),'Normal workflow must not require manual publication');
   await click('[data-view=settings]');await fill('#installationForm [name=installationName]','Plató principal · Fluge');await click('#installationForm button[type=submit]');
@@ -188,12 +208,20 @@ try {
   await evaluate(`Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));`);const ndiBackgroundRequests=await evaluate(`window.ndiStatusRequests`);await evaluate(`new Promise(resolve=>setTimeout(resolve,2300))`);assert(await evaluate(`window.ndiStatusRequests`)===ndiBackgroundRequests,'A background browser tab must stop NDI polling');await evaluate(`delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));`);await waitFor(`window.ndiStatusRequests>${ndiBackgroundRequests}`);
   await click('[data-view=services]');const ndiHiddenRequests=await evaluate(`window.ndiStatusRequests`);await evaluate(`new Promise(resolve=>setTimeout(resolve,2300))`);assert(await evaluate(`window.ndiStatusRequests`)===ndiHiddenRequests,'Leaving the NDI view must stop polling');
   for (const scenario of ['offline','empty','missing_lib','normal']) {
-    await click('[data-view=settings]');await fill('#ndiForm [name=mock_scenario]',scenario);await click('#ndiSave');await waitFor(`!document.getElementById('ndiSave').disabled`);await click('#ndiTab');await waitFor(`document.getElementById('ndiSourceCount').textContent===${JSON.stringify(scenario==='normal'?'5':'0')}&&document.getElementById('ndiState').textContent===${JSON.stringify(scenario==='offline'?'Offline':'Online')}`);
+    const count = {normal:'5',empty:'0',offline:'—',missing_lib:'—'}[scenario];
+    await click('[data-view=settings]');await fill('#ndiForm [name=mock_scenario]',scenario);await click('#ndiSave');await waitFor(`!document.getElementById('ndiSave').disabled`);await click('#ndiTab');await waitFor(`document.getElementById('ndiSourceCount').textContent===${JSON.stringify(count)}&&document.getElementById('ndiState').textContent===${JSON.stringify(scenario==='offline'?'Offline':'Online')}`);
     assert(await evaluate(`document.getElementById('ndiWarning').hidden`)===!['offline','missing_lib'].includes(scenario),`NDI warning presentation failed for ${scenario}`);
     const availability=scenario==='normal'?'available':scenario==='empty'?'absent':'unknown';assert(await evaluate(`document.querySelectorAll('#ndiSources .ndi-availability.${availability}').length===7`),`NDI must retain previous devices with accurate observation state for ${scenario}`);
     if(scenario==='empty')assert(await evaluate(`document.getElementById('ndiEvents').textContent.includes('Deja de estar visible')`),'Missing devices must be recorded in the activity log');
   }
   assert(await evaluate(`document.getElementById('ndiEvents').textContent.includes('visible de nuevo')`),'Recovered devices must appear in the log');
+  await click('[data-view=settings]');await fill('#ndiForm [name=mock_scenario]','missing_lib');await click('#ndiTest');
+  await waitFor(`!document.getElementById('ndiInstallFromTest').hidden&&document.getElementById('ndiTestResult').textContent.includes('Fuentes sin comprobar')`);
+  await click('#ndiInstallFromTest');await waitFor(`document.getElementById('ndiRuntimeDialog').open&&!document.getElementById('ndiRuntimeAccept').disabled`);
+  await click('#ndiRuntimeCancel');assert(await evaluate(`!document.getElementById('ndiRuntimeDialog').open&&!document.getElementById('ndiInstallFromTest').hidden`),'Cancelling the licence must preserve the missing-runtime warning');
+  await click('#ndiInstallFromTest');await waitFor(`!document.getElementById('ndiRuntimeAccept').disabled`);
+  await click('#ndiRuntimeAccept');await waitFor(`!document.getElementById('ndiRuntimeDialog').open&&document.getElementById('ndiInstallFromTest').hidden&&document.getElementById('ndiTestResult').textContent.includes('5 fuentes')`);
+  await click('#ndiTab');await waitFor(`document.getElementById('ndiSourceCount').textContent==='5'`);
   await click('#ndiClearLog');await waitFor(`document.getElementById('ndiEventCount').textContent.startsWith('0 eventos')&&document.getElementById('ndiClearLog').disabled`);assert(await evaluate(`document.querySelectorAll('#ndiSources tbody tr').length===7&&document.querySelectorAll('#ndiSources time[datetime]').length===7&&document.getElementById('ndiEvents').textContent.includes('Registro vacío')`),'Clearing the log must preserve all devices and their latest sightings');await click('#ndiRefresh');await waitFor(`!document.getElementById('ndiRefresh').disabled`);assert(await evaluate(`document.getElementById('ndiEventCount').textContent.startsWith('0 eventos')`),'Refresh must not resurrect cleared events');
   for(const width of [320,390,768,1440]) {await call('Emulation.setDeviceMetricsOverride',{width,height:1200,deviceScaleFactor:1,mobile:false});await click('#ndiTab');assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),`NDI view overflows at ${width}px`);if(width===390)await screenshot('panel-ndi-mobile');await click('[data-view=settings]');assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),`Enabled NDI settings overflow at ${width}px`);}
   await screenshot('panel-ndi-settings','#ndiForm');await click('#ndiEnabled');await waitFor(`document.getElementById('ndiTab').hidden&&!document.getElementById('ndiEnabled').disabled`);const ndiDisabledRequests=await evaluate(`window.ndiStatusRequests`);await evaluate(`new Promise(resolve=>setTimeout(resolve,2300))`);assert(await evaluate(`window.ndiStatusRequests`)===ndiDisabledRequests,'Disabling NDI must stop every polling request');assert(await evaluate(`(async()=>JSON.stringify(await(await fetch('api/ndi/status')).json())==='{"enabled":false}')()`),'Disabled endpoint must return only enabled=false');

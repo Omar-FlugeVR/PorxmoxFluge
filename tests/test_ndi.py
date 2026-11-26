@@ -43,6 +43,7 @@ class NdiProbeTests(unittest.TestCase):
             response=json.loads(result.stdout)
             self.assertTrue(response['online'],response)
             self.assertIn('libndi',response['warning'])
+            self.assertTrue(response['runtime_missing'])
             self.assertEqual(response['sources_count'],0)
             self.assertEqual(list(Path(directory).iterdir()),[],'No SDK settings or processes may survive a one-shot request')
 
@@ -50,11 +51,12 @@ class NdiProbeTests(unittest.TestCase):
         with socket.socket() as listener:
             listener.bind(('127.0.0.1',0)); listener.listen(1)
             settings={'ip':'127.0.0.1','port':listener.getsockname()[1],'timeout':1,'groups':'','config_dir':''}
-            with patch.object(probe,'enumerate_sources',side_effect=probe.LibraryUnavailable('Falta libndi; consulta el README.')):
+            with patch.object(probe,'enumerate_sources',side_effect=probe.RuntimeMissing('Falta libndi.')):
                 result=probe.probe(settings)
         self.assertTrue(result['online'])
         self.assertGreaterEqual(result['latency_ms'],0)
         self.assertIn('libndi',result['warning'])
+        self.assertTrue(result['runtime_missing'])
         self.assertEqual(result['sources_count'],0)
 
     def test_offline_server_does_not_load_sdk(self):

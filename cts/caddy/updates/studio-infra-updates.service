@@ -1,0 +1,10 @@
+[Unit]
+Description=Consultar versiones de Servicio de control y sus CTs
+After=network-online.target pve-cluster.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /etc/studio-infra/updates/updates.sh --scheduled
+TimeoutStartSec=3min
+UMask=0077

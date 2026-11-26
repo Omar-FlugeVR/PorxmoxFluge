@@ -13,6 +13,7 @@ let scanResults = [], scanFilter = 'alive', scanPage = 0, scanRangeLabel = '', a
 const runner = new ScanRunner(request);
 const admin = () => session?.role === 'admin';
 const ndiModule = new NdiModule({request:(path,options={})=>request('',{...options,path}),save:settings=>saveConfig({ndi:settings}),feedback,
+  runtimeRequest:(action,data)=>post(action,data),canInstall:admin,
   onDisabled:()=>{if(view==='ndi')switchView('services');}});
 
 async function request(action, options = {}) {
@@ -74,22 +75,108 @@ async function load() {
   renderInstallationName();
   ndiModule.configure(runtime.ndi,runtime.ndi_mock);
   $('loginScreen').hidden = true; $('app').hidden = false;
-  if (!admin() && ['settings','scan'].includes(view)) view = 'services';
   if (admin()) fillSettings();
   switchView(view); renderSync();
 }
 function switchView(next) {
   if(next==='ndi'&&!runtime.ndi.enabled)next='services';
+  if (!admin() && ['settings', 'scan', 'updates'].includes(next)) next = 'services';
   view = next;
   document.querySelectorAll('[data-view]').forEach(el => el.classList.toggle('active', el.dataset.view === view));
   $('directory').hidden = !['services','devices'].includes(view);
   $('scanner').hidden = view !== 'scan'; $('settings').hidden = view !== 'settings';
   $('ndiView').hidden = view !== 'ndi'; ndiModule.setView(view==='ndi');
+  $('updatesView').hidden = view !== 'updates';
+  if (view === 'updates') refreshUpdates();
+  else clearTimeout(updateTimer);
   $('viewTitle').textContent = view === 'devices' ? 'Equipos del estudio' : 'Servicios del estudio';
   $('search').placeholder = view === 'devices' ? 'Buscar equipo, IP o MAC…' : 'Buscar servicio, IP o dominio…';
   $('addButton').textContent = view === 'devices' ? '+ Añadir equipo' : '+ Añadir servicio';
   $('serviceGrid').hidden = view === 'devices'; $('deviceTable').hidden = view !== 'devices';
   renderDirectory(); if (view === 'scan') renderScan();
+}
+
+const updateServices = {
+  panel: ['Servicio de control', ''],
+  companion: ['Bitfocus Companion', 'https://github.com/bitfocus/companion/releases/latest'],
+  adguard: ['AdGuard Home', 'https://github.com/AdguardTeam/AdGuardHome/releases/latest'],
+  caddy: ['Caddy', 'https://github.com/caddyserver/caddy/releases/latest'],
+  ndi: ['NDI Discovery Server', 'https://docs.ndi.video/all/getting-started/release-notes'],
+};
+const updateStates = {
+  current: 'Al día', update: 'Actualización disponible', not_installed: 'Sin instalar',
+  unavailable: 'CT no disponible', unknown_local: 'Versión instalada desconocida',
+  unknown_remote: 'Publicación sin verificar', newer: 'Instalada más reciente',
+  diverged: 'Historial diferente', local_changes: 'Cambios locales', manual: 'Revisión manual',
+};
+let updateEntries = {}, updateTimer = null, updateBusy = false;
+const updateMessages = {
+  queued: 'En cola en Proxmox.', running: 'Actualizando. El servicio puede interrumpirse brevemente.',
+  success: 'Actualización completada.', failure: 'La actualización falló. Consulta el registro del host.',
+  expired: 'La solicitud caducó antes de que Proxmox la recogiera.',
+};
+function updateVersion(role, version) {
+  return role === 'panel' && /^[a-f0-9]{40}$/.test(version) ? version.slice(0, 8) : (version || '—');
+}
+async function refreshUpdates() {
+  clearTimeout(updateTimer);
+  const button = $('reloadUpdates');
+  if (button.disabled) return;
+  button.disabled = true;
+  let retry = updateBusy;
+  try {
+    const {checkedAt, services, job} = await request('updates');
+    updateEntries = services || {};
+    retry = updateBusy = ['queued', 'running'].includes(job?.state);
+    $('updateJobStatus').hidden = !job;
+    if (job) $('updateJobStatus').textContent = `${updateServices[job.role]?.[0] || ''} · ${job.message || updateMessages[job.state] || ''}`;
+    const date = new Date(checkedAt);
+    const validDate = checkedAt && Number.isFinite(date.getTime());
+    const stale = validDate && Date.now() - date.getTime() > 2 * 60 * 60 * 1000;
+    $('updatesCheckedAt').textContent = validDate
+      ? `Última comprobación · ${date.toLocaleString('es-ES')}${stale ? ' · Hace más de dos horas' : ''}`
+      : 'Pendiente de la primera comprobación en Proxmox.';
+    $('updatesRows').innerHTML = Object.entries(updateServices).map(([role, [name, officialUrl]]) => {
+      const entry = services?.[role] || {};
+      const panelUrl = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:commits|compare\/[a-f0-9.]+)$/.test(entry.notes) ? entry.notes : '';
+      const link = role === 'panel' ? panelUrl : officialUrl;
+      const status = updateStates[entry.status] || 'Pendiente';
+      const available = !updateBusy && validDate && !stale && entry.status === 'update' && entry.canUpdate;
+      return `<tr><td><strong>${name}</strong></td><td><code title="${esc(entry.installed)}">${esc(updateVersion(role, entry.installed))}</code>${entry.dirty ? '<p class="hint">Con cambios locales</p>' : ''}</td><td><code title="${esc(entry.latest)}">${esc(updateVersion(role, entry.latest))}</code></td><td class="${entry.status === 'update' ? 'sync-status' : 'muted'}">${esc(status)}</td><td>${link ? `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer">Ver cambios</a>` : '—'}</td><td><button type="button" class="secondary" data-update-role="${role}" ${available ? '' : 'disabled'}>Actualizar</button></td></tr>`;
+    }).join('');
+  } catch (error) {
+    if (retry && error.status !== 401) $('updateJobStatus').textContent = 'Esperando a que el panel vuelva a responder…';
+    else $('updatesCheckedAt').textContent = error.message;
+  } finally {
+    button.disabled = false;
+    if (view === 'updates' && !$('app').hidden) updateTimer = setTimeout(refreshUpdates, retry ? 3000 : 60000);
+  }
+}
+
+function confirmUpdate(role) {
+  const entry = updateEntries[role];
+  if (updateBusy || !entry?.canUpdate || entry.status !== 'update') return;
+  const dialog = $('updateDialog');
+  const accept = $('updateAccept');
+  $('updateDialogTitle').textContent = `Actualizar ${updateServices[role][0]}`;
+  const impact = role === 'panel' || role === 'caddy' ? 'El panel puede quedar inaccesible unos segundos.' : 'El servicio puede interrumpirse durante la actualización.';
+  $('updateDialogText').textContent = `Versión ${updateVersion(role, entry.latest)}. ${impact}`;
+  $('updateDialogLicense').hidden = !entry.license;
+  $('updateDialogLicense').textContent = entry.license?.text || '';
+  $('updateDialogError').textContent = '';
+  accept.textContent = entry.license ? 'Aceptar licencia y actualizar' : 'Actualizar';
+  accept.onclick = async () => {
+    accept.disabled = true;
+    try {
+      const job = await post('update_service', {role,version:entry.latest,licenseHash:entry.license?.hash,accepted:Boolean(entry.license)});
+      updateBusy = job.state === 'queued';
+      dialog.close();
+      await refreshUpdates();
+    } catch (error) {
+      $('updateDialogError').textContent = error.message;
+    } finally { accept.disabled = false; }
+  };
+  dialog.showModal();
 }
 function renderDirectory() {
   const allHosts = hosts();
@@ -403,6 +490,7 @@ document.addEventListener('click', guard(async event => {
   const d = button.dataset;
   if ('close' in d) button.closest('dialog').close();
   else if (d.view) switchView(d.view);
+  else if (d.updateRole) confirmUpdate(d.updateRole);
   else if (d.category) {
     const allSelected = inventory.categories.every(category => selected.has(category.name));
     if (d.category === '*') selected = new Set(allSelected ? [] : inventory.categories.map(category => category.name));
@@ -497,6 +585,7 @@ $('logout').onclick = guard(async()=>{
   showLoginDelay(session.login_retry_after);
 });
 $('settingsButton').onclick = ()=>switchView('settings');
+$('reloadUpdates').onclick = refreshUpdates;
 $('addButton').onclick = ()=>openEditor(view === 'devices' ? 'device' : 'service');
 $('search').addEventListener('input',renderDirectory);
 $('editorForm').addEventListener('submit',submitEditor);

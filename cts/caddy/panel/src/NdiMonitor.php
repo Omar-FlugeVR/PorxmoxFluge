@@ -63,7 +63,7 @@ final class NdiMonitor
         return ['enabled' => true, 'online' => false, 'server' => NdiSettings::server($settings), 'latency_ms' => null,
             'last_updated' => gmdate('Y-m-d\TH:i:s\Z'), 'sources_count' => 0, 'sources' => [],
             'polling_rate' => $settings['polling_rate'], 'mock' => self::mock(),
-            'sources_observed' => false, 'receivers' => [], 'receivers_count' => 0,
+            'sources_observed' => false, 'runtime_missing' => false, 'receivers' => [], 'receivers_count' => 0,
             'receivers_supported' => false, 'receivers_observed' => false, 'receivers_warning' => null];
     }
 
@@ -72,6 +72,7 @@ final class NdiMonitor
         $base = $this->base($settings);
         if (self::mock()) {
             $scenario = $settings['mock_scenario'];
+            if ($scenario === 'missing_lib' && ($this->store->read('ndi-runtime-demo.json')['installed'] ?? false)) $scenario = 'normal';
             $sources = [];
             foreach ([['CAM-01','PTZ Plano General','192.168.10.51:5961'], ['CAM-02','PTZ Escenario','192.168.10.52:5961'],
                 ['VMIX-MAIN','Program Out','192.168.10.60:5961'], ['PROPRESENTER','Lower Thirds','192.168.10.65:5962'],
@@ -85,7 +86,7 @@ final class NdiMonitor
             return array_replace($base, ['online' => $online, 'latency_ms' => $online ? 1 + $sequence % 4 : null,
                 'sources' => $sources, 'sources_count' => count($sources), 'sources_observed' => $observed,
                 'receivers' => $receivers, 'receivers_count' => count($receivers), 'receivers_supported' => $observed,
-                'receivers_observed' => $observed, 'warning' => match ($scenario) {
+                'receivers_observed' => $observed, 'runtime_missing' => $scenario === 'missing_lib', 'warning' => match ($scenario) {
                     'offline' => 'Servidor sin respuesta: timeout de conexión (simulado).',
                     'missing_lib' => 'Falta libndi para listar fuentes. Consulta la instalación del runtime NDI en el README (simulado).', default => null}]);
         }
@@ -113,7 +114,7 @@ final class NdiMonitor
             $result = json_decode($output, true);
             if (!is_array($result) || !isset($result['online'], $result['sources']) || !is_bool($result['online']) || !is_array($result['sources'])) return $base + ['warning' => 'El helper NDI no devolvió una respuesta válida. Revisa Python y libndi.'];
             return array_replace($base, array_intersect_key($result, array_flip(['online','latency_ms','sources_count','sources','warning',
-                'sources_observed','receivers','receivers_count','receivers_supported','receivers_observed','receivers_warning'])));
+                'sources_observed','runtime_missing','receivers','receivers_count','receivers_supported','receivers_observed','receivers_warning'])));
         } finally {
             if (is_resource($process) && proc_get_status($process)['running']) {
                 proc_terminate($process); usleep(50000);

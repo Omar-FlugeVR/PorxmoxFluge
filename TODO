@@ -3,10 +3,11 @@ USUARIO:
     ☑ REVISAR LANDING PAGE (aspecto aprobado)
     ☐ ESTABLECERE VLANS Y NICS
     ☑ interaccion con NDI service ¿puedo ver ips, disponibles bla bla bla? (Monitor implementado y probado en simulación; validación con servidor real pendiente.)
-    ☐ vlan? que hacer si necesito acceso remoto
-    ☐ updates?
+    ☐ vlan? que hacer si necesito acceso remoto [raspberry pi con acceso remoto con tailgate]
+    ✔ updates? @done(26-11-26 17:42)
     ☐ exportar config por si acaso?
     ☐ traspasar el repo a fluge?
+    ✔ guardado? @done(26-11-26 17:42)
 
 
 Codex:
@@ -179,3 +180,23 @@ Codex:
 
     Activación inicial del monitor NDI — 25/11/2026
     ☑ Activar el monitor con la IP y el puerto del CT NDI Discovery cuando el despliegue confirma su instalación, incluidos los CTs instalados por separado. Conservar los ajustes manuales y dejar desactivado el valor automático cuando no hay CT NDI. Verificado con pruebas HTTP y dobles de Proxmox; pendiente publicar en la VM.
+
+    Actualizaciones del panel y de los CTs — 26/11/2026
+    ☑ Añadir Actualizaciones para administradores, mostrando versión instalada y publicada del panel, Companion, AdGuard Home, Caddy y NDI Discovery. Comparar el commit desplegado con GitHub, y NDI con el SDK oficial de Linux cuya descarga conserva Proxmox en caché.
+    ☑ Programar cada hora la consulta de versiones en Proxmox. Añadir Actualizar por servicio con confirmación, cola y seguimiento de la ejecución. El host verifica la versión solicitada y actualiza un servicio a la vez.
+    ☑ Desplegar el commit del panel mediante sync.sh con copia previa, recarga de Caddy y PHP-FPM y conservación del estado privado. Usar los actualizadores nativos de los otros CTs, con copia y comprobación tras el arranque. Solicitar la licencia de NDI si cambia.
+    ☑ Verificar permisos, validación de versiones y confirmación/cancelación en modo muestra con pruebas HTTP y Chromium. Pasaron Python, Bash y ShellCheck. Extraer y verificar los archivos del SDK oficial. Pendiente desplegar y probar los temporizadores y las cinco actualizaciones en los CTs de Proxmox.
+
+    Acceso a los CTs y carpeta del repositorio — 26/11/2026
+    ☑ Confirmar en el instalador que los CTs nuevos se crean sin contraseña de root. Explicar el acceso desde Proxmox con pct enter, la diferencia con las cuentas web y el origen del nombre studio-infra en el comando git clone de la guía inicial.
+    ☑ Usar fluge-proxmox como nombre local del clon en la guía de instalación y documentar la compatibilidad con instalaciones que ya usan studio-infra.
+
+    Aviso de libndi en el panel — 26/11/2026
+    ☑ Confirmar en el código que Online con el aviso de libndi significa que respondió TCP pero los recuentos de fuentes y receptores quedan sin comprobar. Aclararlo en la guía del CT de Caddy junto a la instalación del runtime oficial. Revisado en el repositorio; pendiente validar la consulta NDI con el runtime en la VM de Hyper-V.
+    ☑ Añadir Instalar runtime NDI junto al aviso de Configuración y de la vista NDI. Permitir a administradores ver y aceptar la licencia del paquete oficial antes de instalar libndi y preparar Avahi en el CT del panel. Volver a consultar NDI al finalizar y mostrar los recuentos pendientes como sin comprobar.
+    ☑ Documentar el mismo instalador para consola y verificar extracción del SDK oficial, permisos y consentimiento en pruebas locales. Pasaron los flujos de cancelación, aceptación y nueva consulta en Chromium con el modo muestra. Pendiente probar la instalación desde el botón en Proxmox.
+
+    Revisión antes del push — 26/11/2026
+    ☑ Revisar los archivos candidatos y el historial local en busca de credenciales y artefactos. Confirmar que config.env, .secrets, SDK, generados y cachés quedan fuera de Git. Validar la configuración de ejemplo y Caddy desde una copia temporal de los archivos que se pueden publicar.
+    ☑ Corregir la comparación de versiones para exigir separadores de punto y restaurar también los archivos auxiliares de Caddy si falla el despliegue. Reducir la salida rutinaria de la cola de actualizaciones cuando no hay solicitudes. Pasaron las pruebas locales, incluido el fallo simulado de validación y de traslado del panel anterior. Pendiente el ciclo en Proxmox.
+    ☑ Documentar dónde se guardan el commit desplegado, el informe de versiones, la caché del SDK de NDI y las copias de actualización.

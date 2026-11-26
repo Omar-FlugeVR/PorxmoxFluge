@@ -25,8 +25,8 @@ export function validateNdiSettings(value) {
 
 /** Poll only an enabled, visible view. Chained timeouts prevent overlapping requests. */
 export class NdiModule {
-  constructor({request,save,feedback,onDisabled}) {
-    Object.assign(this,{request,save,feedback,onDisabled,view:false,timer:null,controller:null,generation:0,data:null,busy:false,direction:'all'});
+  constructor({request,save,feedback,runtimeRequest,canInstall,onDisabled}) {
+    Object.assign(this,{request,save,feedback,runtimeRequest,canInstall,onDisabled,view:false,timer:null,controller:null,generation:0,data:null,busy:false,direction:'all'});
     $('ndiForm').addEventListener('submit', event => { event.preventDefault(); void this.saveForm(); });
     $('ndiEnabled').addEventListener('change', () => {
       this.showFields();
@@ -35,6 +35,10 @@ export class NdiModule {
     $('ndiTest').onclick = () => { void this.test(); };
     $('ndiRefresh').onclick = () => { this.stop(); void this.poll(); };
     $('ndiClearLog').onclick = () => { void this.clearLog(); };
+    $('ndiInstallFromTest').onclick = () => { void this.prepareRuntime(true); };
+    $('ndiInstallFromView').onclick = () => { void this.prepareRuntime(false); };
+    $('ndiRuntimeAccept').onclick = () => { void this.installRuntime(); };
+    $('ndiRuntimeDialog').addEventListener('cancel', event => { if (this.runtimeBusy) event.preventDefault(); });
     $('ndiSearch').addEventListener('input', () => this.renderSources());
     $('ndiDirections').addEventListener('click', event => {
       const button = event.target.closest('[data-ndi-direction]');
@@ -56,6 +60,7 @@ export class NdiModule {
     $('ndiTab').hidden = !settings.enabled;
     this.showFields();
     if (changed) { this.stop(); this.data = null; this.render(); if (this.active()) void this.poll(); }
+    this.showRuntimeButtons();
     if (!settings.enabled) this.onDisabled();
   }
 
@@ -63,7 +68,11 @@ export class NdiModule {
     $('ndiToggleLabel').textContent = $('ndiEnabled').checked ? 'Enable' : 'Disable';
     $('ndiFields').hidden = !$('ndiEnabled').checked;
     $('ndiFields').disabled = !$('ndiEnabled').checked;
-    if (!$('ndiEnabled').checked) $('ndiTestResult').hidden = true;
+    if (!$('ndiEnabled').checked) {
+      $('ndiTestResult').hidden = true;
+      this.testRuntimeMissing = false;
+    }
+    this.showRuntimeButtons();
   }
 
   formSettings() {
@@ -112,13 +121,14 @@ export class NdiModule {
     $('ndiServer').textContent = data?.server || '—';
     $('ndiLatency').textContent = data?.latency_ms == null ? '—' : `${data.latency_ms} ms`;
     $('ndiUpdated').textContent = data?.last_updated ? new Date(data.last_updated).toLocaleString('es-ES') : 'Pendiente de consulta';
-    $('ndiSourceCount').textContent = Number.isInteger(data?.sources_count) ? String(data.sources_count) : '—';
+    $('ndiSourceCount').textContent = data?.sources_observed && !data.stale ? String(data.sources_count) : '—';
     $('ndiReceiverCount').textContent = data?.receivers_observed && !data.stale ? String(data.receivers_count) : '—';
     $('ndiServerSeen').textContent = data?.server_last_seen ? `Última vez disponible: ${date(data.server_last_seen)}` : '';
     $('ndiReceiverNote').textContent = data?.receivers_warning || 'Los receptores deben anunciarse al Discovery Server (NDI 6.2+). La función anunciada no confirma tráfico de vídeo/audio en curso.';
     $('ndiMockBadge').hidden = !this.mock;
     $('ndiWarning').hidden = !data?.warning;
     $('ndiWarning').textContent = data?.warning || '';
+    this.showRuntimeButtons();
     this.renderSources();
     this.renderEvents();
   }
@@ -180,11 +190,70 @@ export class NdiModule {
     try {
       const settings = this.formSettings();
       this.setBusy(true); $('ndiTestResult').hidden = false; $('ndiTestResult').textContent = 'Comprobando conexión…';
+      this.testRuntimeMissing = false;
+      this.showRuntimeButtons();
       this.testController = new AbortController();
       const result = await this.request('api/ndi/test',{method:'POST',data:settings,signal:this.testController.signal});
-      $('ndiTestResult').textContent = `${result.online ? 'Online' : 'Offline'} · ${result.server}${result.latency_ms == null ? '' : ` · ${result.latency_ms} ms`} · ${result.sources_count} fuentes · ${result.receivers_count || 0} receptores${result.warning ? `\n${result.warning}` : ''}`;
+      const sources = result.sources_observed ? `${result.sources_count} fuentes` : 'Fuentes sin comprobar';
+      const receivers = result.receivers_observed ? `${result.receivers_count} receptores` : 'Receptores sin comprobar';
+      $('ndiTestResult').textContent = `${result.online ? 'Online' : 'Offline'} · ${result.server}${result.latency_ms == null ? '' : ` · ${result.latency_ms} ms`} · ${sources} · ${receivers}${result.warning ? `\n${result.warning}` : ''}`;
       $('ndiTestResult').className = `ndi-test-result ${result.online && !result.warning ? 'success' : 'warning'}`;
+      this.testRuntimeMissing = result.runtime_missing === true;
+      this.showRuntimeButtons();
     } catch (error) { if (error.name !== 'AbortError') { $('ndiTestResult').hidden = false; $('ndiTestResult').textContent = error.message; } }
     finally { this.testController = null; this.setBusy(false); }
+  }
+
+  showRuntimeButtons() {
+    $('ndiInstallFromTest').hidden = !this.canInstall() || !this.testRuntimeMissing;
+    $('ndiInstallFromView').hidden = !this.canInstall() || !this.data?.runtime_missing || this.data.stale;
+  }
+
+  runtimeProgress(message) {
+    this.runtimeBusy = Boolean(message);
+    $('ndiRuntimeProgress').textContent = message;
+    $('ndiRuntimeCancel').disabled = this.runtimeBusy;
+    $('ndiRuntimeAccept').disabled = this.runtimeBusy || !this.runtimePackage;
+  }
+
+  async prepareRuntime(fromTest) {
+    if (this.runtimeBusy || !this.canInstall()) return;
+    this.runtimeFromTest = fromTest;
+    this.runtimePackage = null;
+    $('ndiRuntimeLicense').hidden = true;
+    $('ndiRuntimeError').textContent = '';
+    this.runtimeProgress('Descargando el SDK oficial de NDI…');
+    $('ndiRuntimeDialog').showModal();
+    try {
+      const result = await this.runtimeRequest('ndi_runtime_prepare', {});
+      if (result.installed) return this.runtimeInstalled();
+      this.runtimePackage = result.package;
+      $('ndiRuntimeLicense').textContent = result.license;
+      $('ndiRuntimeLicense').hidden = false;
+      $('ndiRuntimeLicense').focus();
+    } catch (error) { $('ndiRuntimeError').textContent = error.message; }
+    finally { this.runtimeProgress(''); }
+  }
+
+  async installRuntime() {
+    if (this.runtimeBusy || !this.runtimePackage || !this.canInstall()) return;
+    $('ndiRuntimeError').textContent = '';
+    this.runtimeProgress('Instalando libndi en el CT del panel…');
+    try {
+      await this.runtimeRequest('ndi_runtime_install', {accepted:true,package:this.runtimePackage});
+      this.runtimeInstalled();
+    } catch (error) { $('ndiRuntimeError').textContent = error.message; }
+    finally { this.runtimeProgress(''); }
+  }
+
+  runtimeInstalled() {
+    $('ndiRuntimeDialog').close();
+    this.runtimePackage = null;
+    this.testRuntimeMissing = false;
+    if (this.data) this.data.runtime_missing = false;
+    this.showRuntimeButtons();
+    this.feedback('Runtime NDI instalado.');
+    if (this.runtimeFromTest && $('ndiEnabled').checked) void this.test();
+    else if (this.active()) { this.stop(); void this.poll(); }
   }
 }

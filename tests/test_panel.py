@@ -205,8 +205,35 @@ class PanelTests(unittest.TestCase):
         self.request('logout', {})
         self.login('viewer','ViewerDemo1')
         self.assertEqual(self.request('data')[0], 200)
+        self.assertEqual(self.request('updates')[0], 403)
         for action,data in [('save_data',self.inventory()),('scan_chunk',{'ips':['192.168.1.30']}),('sync_infrastructure',{'revision':1}),('save_category',{'name':'Forbidden','revision':1}),('delete_category',{'id':'cat-0','revision':1})]:
             self.assertEqual(self.request(action,data)[0], 403)
+
+    def test_updates_returns_cached_report_to_administrators(self):
+        self.assertEqual(self.request('updates'), (200, {'checkedAt': None, 'services': []}))
+        report = {'checkedAt': '2026-11-26T12:00:00+00:00', 'services': {'caddy': {
+            'installed': '2.11.8', 'latest': '2.11.9', 'status': 'update'}}}
+        path = self.state / 'updates.json'
+        path.write_text(json.dumps(report), encoding='utf-8')
+        self.assertEqual(self.request('updates'), (200, report))
+        self.assertEqual(self.request('updates', client=urllib.request.build_opener())[0], 401)
+
+    def test_update_requests_use_the_report_and_require_acceptance_for_a_new_ndi_license(self):
+        from datetime import datetime, timezone
+        release = {'status':'update', 'canUpdate':True, 'installed':'SDK 6.3.1', 'latest':'SDK 6.4.0',
+                   'license':{'hash':'a' * 64, 'text':'Example EULA'}}
+        report = {'checkedAt':datetime.now(timezone.utc).isoformat(), 'services':{'ndi': release}}
+        (self.state / 'updates.json').write_text(json.dumps(report), encoding='utf-8')
+        request = {'role':'ndi', 'version':'SDK 6.4.0'}
+        self.assertEqual(self.request('update_service', request, csrf=False)[0], 403)
+        self.assertEqual(self.request('update_service', {**request, 'version':'SDK 6.3.0'})[0], 409)
+        self.assertEqual(self.request('update_service', request)[0], 422)
+        self.assertFalse((self.state / 'update-request.json').exists())
+        status, job = self.request('update_service', {**request, 'accepted':True, 'licenseHash':'a' * 64})
+        self.assertEqual((status, job['state']), (200, 'success'))
+        results = self.request('updates')[1]
+        self.assertEqual(results['services']['ndi']['installed'], 'SDK 6.4.0')
+        self.assertEqual(results['job']['id'], job['id'])
 
     def test_categories_propagate_names_and_reassign_without_deleting_equipment(self):
         data = self.inventory()
@@ -484,6 +511,25 @@ class PanelTests(unittest.TestCase):
         if path.exists():
             cache = json.loads(path.read_text());cache['checked_at'] = 0;path.write_text(json.dumps(cache))
         return self.request('/api/ndi/status')[1]
+
+    def test_runtime_install_requires_admin_csrf_and_acceptance_and_refreshes_status(self):
+        self.assertEqual(self.save_ndi({**self.ndi_settings(), 'mock_scenario': 'missing_lib'})[0], 200)
+        self.assertTrue(self.request('/api/ndi/status')[1]['runtime_missing'])
+        self.assertEqual(self.request('ndi_runtime_prepare', {}, csrf=False)[0], 403)
+        viewer = {'revision':0, 'username':'runtimeviewer', 'password':'ViewerDemo1', 'confirmPassword':'ViewerDemo1', 'role':'user'}
+        self.assertEqual(self.request('create_user', viewer)[0], 200)
+        client, session = self.another_session('runtimeviewer', 'ViewerDemo1')
+        self.assertEqual(self.request('ndi_runtime_prepare', {}, client=client, csrf=session['csrfToken'])[0], 403)
+        status, prepared = self.request('ndi_runtime_prepare', {})
+        self.assertEqual(status, 200, prepared)
+        self.assertIn('Licencia de la muestra', prepared['license'])
+        self.assertEqual(self.request('ndi_runtime_install', {'package':prepared['package']})[0], 422)
+        self.assertEqual(self.request('ndi_runtime_install', {'package':'a' * 64,'accepted':True})[0], 409)
+        self.assertTrue(self.request('/api/ndi/status')[1]['runtime_missing'])
+        self.assertEqual(self.request('ndi_runtime_install', {'package':prepared['package'],'accepted':True}), (200, {'installed':True}))
+        result = self.request('/api/ndi/status')[1]
+        self.assertEqual((result['runtime_missing'], result['sources_count'], result['receivers_count']), (False, 5, 2))
+        self.assertEqual(self.request('ndi_runtime_prepare', {}), (200, {'installed':True}))
 
     def test_ndi_history_roles_last_seen_events_and_recovery_persist(self):
         self.assertEqual(self.save_ndi(self.ndi_settings())[0],200)

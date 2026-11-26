@@ -28,10 +28,12 @@ En la terminal del **host**, instala las herramientas si faltan:
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates python3
-git clone https://github.com/Omar-FlugeVR/PorxmoxFluge.git studio-infra
-cd studio-infra
+git clone https://github.com/Omar-FlugeVR/PorxmoxFluge.git fluge-proxmox
+cd fluge-proxmox
 ./install.sh
 ```
+
+`fluge-proxmox` es el nombre local de la carpeta en el host. Si ya clonaste el proyecto como `studio-infra`, puedes seguir usando esa carpeta para instalar y sincronizar.
 
 Si el host recién instalado tiene repositorios Enterprise sin una suscripción, desactívalos desde la interfaz de Proxmox y añade el repositorio `no-subscription` de la versión del host para poder instalar dependencias. Si ya tienes `git`, `curl` y `python3`, el paso opcional del instalador puede encargarse de esos repositorios.
 
@@ -227,6 +229,33 @@ Las reglas generadas llevan `enabled: true`, necesario en las versiones actuales
 
 Sin cambios de contenido, no se recargan servicios activos ni se generan nuevas copias. Editar `config.env` no migra CTs existentes: los cambios de IP, CIDR, bridge o ID requieren ajustar primero la infraestructura a mano. El panel también rechaza un cambio de su dominio o IP hasta migrar su configuración privada. Cambiar `UPSTREAM_DNS`, zona horaria o usuario inicial tampoco modifica instalaciones ya hechas; administra esas opciones dentro de sus servicios. El CT de Caddy nuevo utiliza 512 MiB; los CTs existentes no se redimensionan automáticamente.
 
+### Actualizaciones del panel y de los CTs
+
+La pestaña **Actualizaciones** está disponible para administradores. Muestra la versión instalada y la última publicación. `studio-infra-updates.timer` comprueba las versiones cada hora en Proxmox. **Recargar informe** lee el último resultado. `bash updates.sh` fuerza una consulta desde el host.
+
+**Actualizar** pide confirmación para la versión mostrada. Proxmox recoge una solicitud a la vez mediante `studio-infra-update-jobs.timer`. La pestaña muestra la cola, la ejecución y el resultado. El panel vuelve a consultar al recuperarse de una recarga. Instala esta función sincronizando el CT de Caddy una primera vez.
+
+Para **Servicio de control**, GitHub publica el commit y Proxmox lo descarga desde la rama por defecto de `origin`. El host comprueba que es el commit elegido, avanza su copia local con `git merge --ff-only` y ejecuta `sync.sh` para Caddy. El despliegue copia el panel, valida Caddy y recarga Caddy y PHP-FPM. El inventario, los ajustes y las cuentas permanecen en el estado privado del CT. Si falla la validación o la recarga durante la publicación, el despliegue restaura los archivos anteriores. Los cambios locales en el checkout requieren revisión antes de actualizar desde el botón.
+
+El despliegue desde la terminal sigue disponible. Ejecuta como root desde el checkout de Proxmox:
+
+```bash
+git pull --ff-only
+./sync.sh --ct caddy --check
+./sync.sh --ct caddy
+```
+
+| Servicio | Qué muestra y cómo se actualiza |
+|---|---|
+| Bitfocus Companion | Estable para Linux x86_64. Hace copia del programa y el perfil y usa el actualizador oficial de Bitfocus para la versión elegida. |
+| AdGuard Home | Estable publicada en GitHub. Hace copia del programa y sus datos y ejecuta `AdGuardHome --update`. El DNS se interrumpe mientras se aplica. |
+| Caddy | Estable publicada en GitHub. Usa la versión candidata de APT y descarga antes la versión anterior para poder recuperarla. Si APT todavía no ofrece la versión elegida, el servicio sigue funcionando con la instalada. |
+| NDI Discovery Server | Compara la versión del SDK instalado con el paquete Linux oficial. Guarda el paquete en caché y reutiliza la descarga con los validadores HTTP disponibles. Pide aceptar el texto de la licencia si ha cambiado. Conserva los ajustes de Discovery Server. |
+
+Los actualizadores de los CTs comprueban la versión, el servicio y su puerto después de iniciarlo. Las copias se guardan en `/var/backups/studio-infra/` dentro de cada CT. En el host, `journalctl -u studio-infra-update-jobs.service` muestra el resultado de las instalaciones y `journalctl -u studio-infra-updates.service` el de las consultas.
+
+En el **CT de Caddy**, `/opt/fluge-control/revision.json` guarda el commit del panel desplegado y `/etc/fluge-control/updates.json` conserva el último informe de versiones y su fecha. Proxmox lee la versión instalada de cada uno de los demás servicios en su propio CT. En el **host Proxmox**, `/var/cache/studio-infra/ndi/` conserva el paquete oficial de NDI y los metadatos de la versión comprobada. El primer chequeo de una instalación limpia genera estos datos de nuevo.
+
 ## 5. Configurar los clientes
 
 En el DHCP del router, anuncia **la IP de AdGuard** como servidor DNS (`192.168.1.11` en el ejemplo), renueva las concesiones o reconecta los dispositivos. Otra opción es fijar ese DNS en la interfaz de red de cada PC.
@@ -343,10 +372,10 @@ apt-get install -y python3 python3-yaml shellcheck php-cli php-curl
 python3 -m unittest discover -s tests -v
 bash tests/test-bash.sh
 bash tests/test-post-install.sh
-shellcheck -x install.sh sync.sh scripts/*.sh cts/*/*.sh cts/*/provision/*.sh tests/*.sh
+shellcheck -x install.sh sync.sh updates.sh scripts/*.sh scripts/provision/*.sh cts/*/*.sh cts/*/provision/*.sh tests/*.sh
 ```
 
-Las pruebas locales y la CI comprueban validación, generación por CT, selección de plantillas, rechazo de IDs ocupados y restauración ante fallos simulados. También ejecutan el coordinador Bash con dobles de Proxmox para comprobar instalación nueva, actualización, omisión de existentes, identidad antes del arranque y protección del inventario operativo ante fallos del panel. Las pruebas HTTP del panel usan un servidor PHP temporal con estado aislado; comprueban altas/bajas, publicación DNS/302, permisos, CSRF, revisiones y conservación de reglas ajenas. También comprueban el modo de producción con una contraseña privada aleatoria, sin simulación ni acceso mediante las credenciales de muestra. El helper de Caddy se prueba en POSIX. `tests/panel-browser.mjs` permite comprobar los flujos y las cinco vistas (incluida NDI) con Chromium mediante CDP; no requiere paquetes npm. La instalación real requiere comprobarla sobre un host Proxmox; estas pruebas no emulan LXC ni `systemd`.
+Las pruebas locales y la CI comprueban validación, generación por CT, selección de plantillas, rechazo de IDs ocupados y restauración ante fallos simulados. También ejecutan el coordinador Bash con dobles de Proxmox para comprobar instalación nueva, actualización, omisión de existentes, identidad antes del arranque y protección del inventario operativo ante fallos del panel. Las pruebas HTTP del panel usan un servidor PHP temporal con estado aislado; comprueban altas/bajas, publicación DNS/302, permisos, CSRF, revisiones y conservación de reglas ajenas. También comprueban el modo de producción con una contraseña privada aleatoria, sin simulación ni acceso mediante las credenciales de muestra. El helper de Caddy se prueba en POSIX. `tests/panel-browser.mjs` permite comprobar los flujos del panel, incluidos NDI y Actualizaciones, con Chromium mediante CDP; no requiere paquetes npm. La instalación real requiere comprobarla sobre un host Proxmox; estas pruebas no emulan LXC ni `systemd`.
 
 ### Muestra local de desarrollo
 

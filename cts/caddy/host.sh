@@ -43,8 +43,27 @@ sync_panel_ndi() {
         || warn 'No se pudo actualizar el destino automático NDI del panel.'
 }
 
+configure_panel_updates() {
+    local units="$REPO_DIR/cts/caddy/updates" path snapshot=/etc/studio-infra/updates
+    install -d -m 0700 /etc/studio-infra "$snapshot" || return
+    if [[ -f /etc/systemd/system/studio-infra-updates.timer ]]; then
+        systemctl stop studio-infra-updates.timer studio-infra-updates.service || return
+    fi
+    # El temporizador ejecuta la copia desplegada. Un git pull solo cambia el checkout.
+    for path in updates.sh scripts/{check_updates.py,run_updates.py,ndi_release.py,ndi_sdk.py,common.sh,ct-network.py,inventory.py,post-install.sh,render.py} \
+        scripts/provision/upgrade-software.sh \
+        cts/{adguard,caddy,companion,ndi}/host.sh; do
+        install -D -m 0600 -- "$REPO_DIR/$path" "$snapshot/$path" || return
+    done
+    printf '%s\n' "$REPO_DIR" > "$snapshot/checkout" &&
+        chmod 0600 "$snapshot/checkout" &&
+        install -m 0644 "$units/"studio-infra-{updates,update-jobs}.{service,timer} /etc/systemd/system/ &&
+        systemctl daemon-reload && systemctl enable --now studio-infra-updates.timer studio-infra-update-jobs.timer &&
+        systemctl start --no-block studio-infra-updates.service
+}
+
 apply_caddy() {
-    local stage
+    local stage revision='null' dirty=false changes
     need_commands tar
     mkdir -p -- "$REPO_DIR/.secrets"
     chmod 700 -- "$REPO_DIR/.secrets"
@@ -74,14 +93,24 @@ os.chmod(destination, 0o600)
 PY
     tar -C "$REPO_DIR/cts/caddy/panel" --exclude='__pycache__' --exclude='*.pyc' \
         --exclude='./bin/demo-router.php' -cf "$TEMP_DIR/panel.tar" .
+    if revision="$(git -C "$REPO_DIR" rev-parse --verify HEAD 2>/dev/null)" && [[ "$revision" =~ ^[a-f0-9]{40}$ ]]; then
+        revision="\"$revision\""
+        if ! changes="$(git -C "$REPO_DIR" status --porcelain -- cts/caddy/panel)" || [[ -n "$changes" ]]; then dirty=true; fi
+    else
+        revision='null'
+    fi
+    printf '{"commit":%s,"dirty":%s}\n' "$revision" "$dirty" > "$TEMP_DIR/revision.json"
     stage="$(pct exec "$CADDY_CT_ID" -- mktemp -d /tmp/studio-caddy.XXXXXXXX)"
     pct push "$CADDY_CT_ID" "$TEMP_DIR/rendered/caddy/Caddyfile" "$stage/Caddyfile" --perms 0600
     pct push "$CADDY_CT_ID" "$TEMP_DIR/rendered/caddy/seed.json" "$stage/seed.json" --perms 0600
     pct push "$CADDY_CT_ID" "$TEMP_DIR/rendered/caddy/panel-config.json" "$stage/config.json" --perms 0600
     pct push "$CADDY_CT_ID" "$REPO_DIR/.secrets/panel-admin.json" "$stage/auth.json" --perms 0600
     pct push "$CADDY_CT_ID" "$TEMP_DIR/panel.tar" "$stage/panel.tar" --perms 0600
+    pct push "$CADDY_CT_ID" "$REPO_DIR/scripts/ndi_sdk.py" "$stage/ndi_sdk.py" --perms 0600
+    pct push "$CADDY_CT_ID" "$TEMP_DIR/revision.json" "$stage/revision.json" --perms 0600
     pct exec "$CADDY_CT_ID" -- bash -s < "$REPO_DIR/cts/caddy/provision/panel.sh"
     pct exec "$CADDY_CT_ID" -- bash -s -- "$stage" < "$REPO_DIR/cts/caddy/provision/apply.sh"
     sync_panel_ndi
+    configure_panel_updates || warn 'No se pudo activar la comprobación periódica de actualizaciones.'
     ok "Panel y Caddy aplicados. Acceso inicial en $REPO_DIR/.secrets/panel-admin.json."
 }

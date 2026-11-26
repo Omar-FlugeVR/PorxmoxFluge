@@ -10,7 +10,9 @@ use Homelab\InventoryRepository;
 use Homelab\JsonStore;
 use Homelab\NetworkScanner;
 use Homelab\NdiMonitor;
+use Homelab\NdiRuntime;
 use Homelab\UsersRepository;
+use Homelab\UpdateJobs;
 use Homelab\Validator;
 
 require dirname(__DIR__) . '/src/autoload.php';
@@ -95,6 +97,12 @@ try {
                 $current = $config->get();
                 $response = ['demo' => getenv('FLUGE_DEMO') === '1', 'installationName' => $current['installationName'], 'baseDomain' => $current['baseDomain'], 'dashboardDomain' => $current['dashboardDomain'], 'lastSync' => $store->read('last-sync.json') ?: null, 'ndi' => $current['ndi'], 'ndi_mock' => NdiMonitor::mock()];
                 break;
+            case 'GET:updates':
+                $response = (new UpdateJobs($store))->report();
+                break;
+            case 'POST:update_service':
+                $response = (new UpdateJobs($store))->enqueue($input);
+                break;
             case 'GET:ndi_status':
             case 'POST:ndi_test':
                 session_write_close();
@@ -104,6 +112,12 @@ try {
             case 'POST:ndi_clear_log':
                 session_write_close();
                 $response = (new NdiMonitor($store, $config))->clearLog();
+                break;
+            case 'POST:ndi_runtime_prepare':
+            case 'POST:ndi_runtime_install':
+                session_write_close();
+                $runtime = new NdiRuntime($store);
+                $response = $action === 'ndi_runtime_prepare' ? $runtime->prepare() : $runtime->install($input);
                 break;
             case 'GET:applied':
                 if (getenv('FLUGE_DEMO') !== '1') throw new HttpError(404, 'Vista disponible en la muestra.');
