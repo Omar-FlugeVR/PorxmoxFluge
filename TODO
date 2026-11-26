@@ -219,6 +219,7 @@ Codex:
     Emisores NDI y estado de las consultas — 26/11/2026
     ☑ Combinar el Finder con el listener de emisores de NDI 6.3 y posteriores. Respetar los grupos, distinguir emisores del mismo nombre y conservar su historial. Verificado con dobles del SDK y pruebas de persistencia.
     ☑ Desactivar Actualizar en NDI y Recargar informe en Actualizaciones durante la consulta. Mostrar el estado de espera y volver a habilitar el botón tras recibir respuesta o agotar el tiempo. Verificado en Chromium.
+    ☑ Mantener Consultando… durante al menos un segundo al pulsar Actualizar en NDI. La petición empieza de inmediato y el sondeo automático conserva su temporización. Verificado con una respuesta rápida en Chromium.
     ☑ Confirmar desde Windows dos fuentes en el Finder y dos conexiones de Test Patterns al Discovery Server. El usuario confirmó que ambos TX aparecen en su panel.
 
     Retirada de entradas NDI y diagnóstico de receptores — 26/11/2026

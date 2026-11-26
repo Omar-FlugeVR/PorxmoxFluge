@@ -276,7 +276,19 @@ try {
   await click('#ndiRuntimeAccept');await waitFor(`!document.getElementById('ndiRuntimeDialog').open&&document.getElementById('ndiInstallFromTest').hidden&&document.getElementById('ndiTestResult').textContent.includes('5 fuentes')`);
   await click('#ndiTab');await waitFor(`document.getElementById('ndiSourceCount').textContent==='5'`);
   await checkRefreshTimeout('ndiRefresh', 'api/ndi/status', 'Consultando…', 'ndiWarning');
-  await click('#ndiRefresh');await waitFor(`document.getElementById('ndiState').textContent==='Online'`);
+  const busyMs = await evaluate(`new Promise(resolve => {
+    const button = document.getElementById('ndiRefresh');
+    const startedAt = performance.now();
+    const observer = new MutationObserver(() => {
+      if (button.disabled) return;
+      observer.disconnect();
+      resolve(performance.now() - startedAt);
+    });
+    observer.observe(button, {attributes:true, attributeFilter:['disabled']});
+    button.click();
+  })`);
+  assert(busyMs >= 995, `A quick manual NDI refresh must stay disabled for one second (observed ${busyMs} ms)`);
+  await waitFor(`document.getElementById('ndiState').textContent==='Online'`);
   await click('#ndiClearLog');await waitFor(`document.getElementById('ndiEventCount').textContent.startsWith('0 eventos')&&document.getElementById('ndiClearLog').disabled`);assert(await evaluate(`document.querySelectorAll('#ndiSources tbody tr').length===7&&document.querySelectorAll('#ndiSources time[datetime]').length===7&&document.getElementById('ndiEvents').textContent.includes('Registro vacío')`),'Clearing the log must preserve all devices and their latest sightings');await click('#ndiRefresh');await waitFor(`!document.getElementById('ndiRefresh').disabled`);assert(await evaluate(`document.getElementById('ndiEventCount').textContent.startsWith('0 eventos')`),'Refresh must not resurrect cleared events');
   for(const width of [320,390,768,1440]) {await call('Emulation.setDeviceMetricsOverride',{width,height:1200,deviceScaleFactor:1,mobile:false});await click('#ndiTab');assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),`NDI view overflows at ${width}px`);if(width===390)await screenshot('panel-ndi-mobile');await click('[data-view=settings]');assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),`Enabled NDI settings overflow at ${width}px`);}
   await screenshot('panel-ndi-settings','#ndiForm');await click('#ndiEnabled');await waitFor(`document.getElementById('ndiTab').hidden&&!document.getElementById('ndiEnabled').disabled`);const ndiDisabledRequests=await evaluate(`window.ndiStatusRequests`);await evaluate(`new Promise(resolve=>setTimeout(resolve,2300))`);assert(await evaluate(`window.ndiStatusRequests`)===ndiDisabledRequests,'Disabling NDI must stop every polling request');assert(await evaluate(`(async()=>JSON.stringify(await(await fetch('api/ndi/status')).json())==='{"enabled":false}')()`),'Disabled endpoint must return only enabled=false');

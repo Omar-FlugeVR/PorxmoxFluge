@@ -36,7 +36,7 @@ export class NdiModule {
     $('ndiRefresh').onclick = () => {
       if (this.controller || this.historyBusy) return;
       clearTimeout(this.timer);
-      void this.poll();
+      void this.poll(1000);
     };
     $('ndiClearLog').onclick = () => { void this.clearLog(); };
     $('ndiInstallFromTest').onclick = () => { void this.prepareRuntime(true); };
@@ -105,10 +105,11 @@ export class NdiModule {
     this.setRefreshBusy(this.historyBusy);
   }
 
-  async poll() {
+  async poll(minimumBusyMs = 0) {
     if (!this.active() || this.controller || this.historyBusy) return;
     const generation = this.generation;
     this.controller = new AbortController(); this.setRefreshBusy(true);
+    const busyUntil = performance.now() + minimumBusyMs;
     let rate = this.settings.polling_rate;
     try {
       const data = await this.request('api/ndi/status', {signal:this.controller.signal,timeout:(this.settings.timeout + 5) * 1000});
@@ -121,6 +122,10 @@ export class NdiModule {
         this.data = {...(this.data || {}),warning,stale:true}; this.render();
       }
     } finally {
+      const remaining = Math.ceil(busyUntil - performance.now());
+      if (generation === this.generation && remaining > 0) {
+        await new Promise(resolve => setTimeout(resolve, remaining));
+      }
       if (generation === this.generation) {
         this.controller = null; this.setRefreshBusy(false);
         if (this.active()) this.timer = setTimeout(() => { void this.poll(); }, rate * 1000);
