@@ -20,6 +20,10 @@ final class UpdateJobs
             $job = $request + ['state' => time() - $request['created'] > 900 ? 'expired' : 'queued'];
         }
         if ($job) $report['job'] = $job;
+        $automatic = $this->reports->read('update-check.json');
+        if (is_int($automatic['expiresAt'] ?? null) && $automatic['expiresAt'] > time()) {
+            $report['automaticCheck'] = true;
+        }
         return $report;
     }
 
@@ -31,6 +35,9 @@ final class UpdateJobs
             if (in_array($job['state'] ?? '', ['queued', 'running'], true)) {
                 if ($job['role'] === 'check') return $job;
                 throw new HttpError(409, 'Ya hay una actualización en curso.');
+            }
+            if ($report['automaticCheck'] ?? false) {
+                throw new HttpError(409, 'Ya hay una búsqueda automática en curso.');
             }
             $request = ['id' => bin2hex(random_bytes(16)), 'role' => 'check', 'created' => time()];
             $this->store->write('update-request.json', $request);
@@ -55,7 +62,7 @@ final class UpdateJobs
         }
         return $this->store->locked('update-request', function () use ($input, $role, $version): array {
             $report = $this->report();
-            if (in_array($report['job']['state'] ?? '', ['queued', 'running'], true)) {
+            if (($report['automaticCheck'] ?? false) || in_array($report['job']['state'] ?? '', ['queued', 'running'], true)) {
                 throw new HttpError(409, 'Ya hay una comprobación o actualización en curso.');
             }
             $entry = $report['services'][$role] ?? [];

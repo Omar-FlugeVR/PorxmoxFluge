@@ -244,6 +244,21 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(self.request('check_updates', {})[0], 409)
         self.assertEqual(self.request('updates')[1]['checkedAt'], report['checkedAt'])
 
+    def test_automatic_update_check_status_and_expiration(self):
+        path = self.state / 'update-check.json'
+        path.write_text(json.dumps({'expiresAt': int(time.time()) + 60}), encoding='utf-8')
+        status, report = self.request('updates')
+        self.assertEqual(status, 200)
+        self.assertTrue(report['automaticCheck'])
+        self.assertNotIn('job', report)
+        self.assertEqual(self.request('check_updates', {})[0], 409)
+        self.assertEqual(self.request('update_service', {'role':'caddy', 'version':'2.11.9'})[0], 409)
+        self.assertFalse((self.state / 'update-request.json').exists())
+
+        path.write_text(json.dumps({'expiresAt': int(time.time()) - 1}), encoding='utf-8')
+        self.assertNotIn('automaticCheck', self.request('updates')[1])
+        self.assertEqual(self.request('check_updates', {})[0], 200)
+
     def test_update_requests_use_the_report_and_require_acceptance_for_a_new_ndi_license(self):
         from datetime import datetime, timezone
         release = {'status':'update', 'canUpdate':True, 'installed':'SDK 6.3.1', 'latest':'SDK 6.4.0',

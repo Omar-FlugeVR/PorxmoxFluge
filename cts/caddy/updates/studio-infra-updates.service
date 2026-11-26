@@ -5,6 +5,6 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash /etc/studio-infra/updates/updates.sh --scheduled
+ExecStart=/bin/bash /etc/studio-infra/updates/updates.sh --automatic
 TimeoutStartSec=3min
 UMask=0077

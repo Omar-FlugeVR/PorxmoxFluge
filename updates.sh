@@ -10,7 +10,7 @@ checkout="$REPO_DIR"
 mode=report
 case "${1:-}" in
     '') ;;
-    --scheduled) wait_lock=90; IFS= read -r checkout < "$REPO_DIR/checkout" ;;
+    --scheduled|--automatic) wait_lock=90; IFS= read -r checkout < "$REPO_DIR/checkout" ;;
     --jobs) wait_lock=90; mode='jobs'; IFS= read -r checkout < "$REPO_DIR/checkout" ;;
     --help|-h) printf '%s\n' 'Uso: bash updates.sh' 'Consulta versiones desde Proxmox y publica el resultado en el panel.'; exit 0 ;;
     *) die "Opción desconocida: $1" ;;
@@ -43,6 +43,29 @@ if [[ "$mode" == jobs ]]; then
     exit 0
 fi
 
+# El archivo temporal y su sustitución se crean dentro del CT.
+publish_update_state() {
+    # shellcheck disable=SC2016
+    timeout 15 pct exec "$CADDY_CT_ID" -- sh -eu -c '
+        temp="$(mktemp "/etc/fluge-control/.$1.XXXXXXXX")"
+        trap '\''rm -f -- "$temp"'\'' EXIT
+        cat > "$temp"
+        chmod 0644 "$temp"
+        mv -fT -- "$temp" "/etc/fluge-control/$1"
+    ' sh "$1"
+}
+
+if [[ "${1:-}" == --automatic ]]; then
+    ct_settings caddy
+    [[ "$(check_ct)" == available ]] || die 'El CT del panel no está accesible o no coincide con config.env.'
+    # La caducidad cubre una terminación forzada. Coincide con TimeoutStartSec.
+    if publish_update_state update-check.json <<< "{\"expiresAt\":$(( $(date +%s) + 180 ))}"; then
+        trap 'publish_update_state update-check.json <<< "{}" || warn "No se pudo cerrar el estado de la búsqueda automática."; cleanup' EXIT
+    else
+        warn 'No se pudo anunciar la búsqueda automática al panel.'
+    fi
+fi
+
 versions=()
 for role in "${ALL_CTS[@]}"; do
     ip_key="${role^^}_IP"
@@ -73,13 +96,5 @@ done
 
 report="$TEMP_DIR/updates.json"
 python3 "$REPO_DIR/scripts/check_updates.py" "$checkout" "$panel_revision" "${versions[@]}" > "$report"
-# El archivo temporal y su sustitución se crean dentro del CT.
-# shellcheck disable=SC2016
-pct exec "$CADDY_CT_ID" -- sh -eu -c '
-    temp="$(mktemp /etc/fluge-control/.updates.XXXXXXXX)"
-    trap '\''rm -f -- "$temp"'\'' EXIT
-    cat > "$temp"
-    chmod 0644 "$temp"
-    mv -fT -- "$temp" /etc/fluge-control/updates.json
-' < "$report"
+publish_update_state updates.json < "$report"
 ok 'Informe de versiones publicado en Actualizaciones.'

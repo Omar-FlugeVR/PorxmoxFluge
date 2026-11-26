@@ -73,7 +73,6 @@
       <p class="hint">Proxmox consulta las versiones cada hora. Aplica las actualizaciones cuando tengas una ventana de mantenimiento.</p>
       <p id="updatesCheckedAt" class="sync-status" role="status"></p>
       <p id="updateJobStatus" class="sync-status" role="status" hidden></p>
-      <progress id="updateProgress" aria-label="Actualización en curso" hidden></progress>
       <div class="table-wrap"><table><thead><tr><th scope="col">Servicio</th><th scope="col">Instalada</th><th scope="col">Publicada</th><th scope="col">Estado</th><th scope="col">Acción</th></tr></thead><tbody id="updatesRows"></tbody></table></div>
     </section>
     <section id="settings" hidden>
@@ -119,6 +118,11 @@
     <pre id="updateDialogLicense" tabindex="0" aria-label="Licencia del SDK de NDI" hidden></pre>
     <p id="updateDialogError" class="form-error" role="alert"></p>
     <div class="dialog-actions"><button type="button" id="updateCancel" data-close class="quiet">Cancelar</button><button type="button" id="updateAccept" class="primary">Actualizar</button></div>
+  </dialog>
+  <dialog id="updateOperation" closedby="none" aria-labelledby="updateOperationTitle" aria-describedby="updateOperationStatus">
+    <div class="dialog-heading"><h2 id="updateOperationTitle">Actualizaciones</h2></div>
+    <p id="updateOperationStatus" class="hint" role="status"></p>
+    <div id="updateProgress" role="progressbar" aria-labelledby="updateOperationTitle"></div>
   </dialog>
   <noscript><p>Activa JavaScript para gestionar el panel.</p></noscript>
 </body>

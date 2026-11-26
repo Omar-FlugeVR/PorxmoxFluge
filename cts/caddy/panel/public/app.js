@@ -31,6 +31,7 @@ async function request(action, options = {}) {
     if (response.status === 401 && action !== 'login') {
       ndiModule.setView(false);
       runner.cancel(); $('app').hidden = true; $('loginScreen').hidden = false;
+      showPendingUpdate(null);
     }
     const error = new Error(data.message || data.dns_sync?.errors?.join(' ') || 'No se pudo completar la operación.');
     error.status = response.status; error.data = data; throw error;
@@ -68,10 +69,12 @@ function renderSync() {
   $('footerStatus').textContent = current ? 'Accesos actualizados' : needsRetry ? 'Error al actualizar los accesos' : 'Aplicación automática';
 }
 async function load() {
-  [inventory, runtime] = await Promise.all([request('data'), request('runtime')]);
+  if (!admin()) showPendingUpdate(null);
+  const options = pendingUpdate ? {timeout:updateRequestTimeout} : {};
+  [inventory, runtime] = await Promise.all([request('data', options), request('runtime', options)]);
   selected = new Set(inventory.categories.map(c => c.name));
   if (admin()) {
-    [config, scannerConfig, users] = await Promise.all([request('get_config'), request('get_scanner_config'), request('users')]);
+    [config, scannerConfig, users] = await Promise.all([request('get_config', options), request('get_scanner_config', options), request('users', options)]);
     scannerConfig = validateScannerConfiguration(scannerConfig);
   }
   $('username').textContent = session.username;
@@ -116,8 +119,13 @@ const updateStates = {
   unknown_remote: 'Publicación sin verificar', newer: 'Instalada más reciente',
   diverged: 'Historial diferente', local_changes: 'Cambios locales', manual: 'Revisión manual', incompatible: 'Ruta de actualización no disponible',
 };
-let updateEntries = {}, updateTimer = null, updateBusy = false, updateSubmitting = false, updateReading = false;
-let updateChecking = false, updateGeneration = 0;
+let updateEntries = {}, updateTimer = null, updateSubmitting = false, updateReading = false;
+let automaticUpdateCheck = false, updateRowsMarkup = '';
+let pendingUpdate = null, lastUpdateJobId = null, updateGeneration = 0;
+const updateStorageKey = 'fluge:pending-update';
+const updateRequestTimeout = 8000;
+const updateRetryDelay = 3000;
+const updateReconnectMessage = 'Esperando a que el panel vuelva a responder…';
 const updateMessages = {
   queued: 'En cola en Proxmox.', running: 'Actualizando. El servicio puede interrumpirse brevemente.',
   success: 'Actualización completada.', failure: 'La actualización falló. Consulta el registro del host.',
@@ -133,35 +141,80 @@ function updateVersion(role, entry, key) {
   const release = entry[`${key}Release`];
   return release ? `${release.version} (${release.type})` : '—';
 }
-function showUpdateJob(role, message, pending) {
+function restorePendingUpdate() {
+  try {
+    const operation = JSON.parse(sessionStorage.getItem(updateStorageKey));
+    if (operation?.role === 'check' || Object.hasOwn(updateServices, operation?.role)) return operation;
+  } catch {}
+  return null;
+}
+function showPendingUpdate(operation, message) {
+  if (operation !== pendingUpdate) {
+    pendingUpdate = operation;
+    try {
+      if (operation) sessionStorage.setItem(updateStorageKey, JSON.stringify(operation));
+      else sessionStorage.removeItem(updateStorageKey);
+    } catch {}
+  }
+  const dialog = $('updateOperation');
+  if (operation) {
+    const title = operation.role === 'check' ? 'Buscando actualizaciones' : `Actualizando ${updateServices[operation.role]}`;
+    if ($('updateOperationTitle').textContent !== title) $('updateOperationTitle').textContent = title;
+    if ($('updateOperationStatus').textContent !== message) $('updateOperationStatus').textContent = message;
+    if (!dialog.open) dialog.showModal();
+  } else if (dialog.open) {
+    dialog.close();
+  }
+  updateActionControls();
+}
+function showUpdateJob(job) {
+  let role = job?.role;
+  const messages = role === 'check' ? checkMessages : updateMessages;
+  let message = job?.message || messages[job?.state];
+  lastUpdateJobId = job?.id ?? null;
+  if (['queued', 'running'].includes(job?.state)) {
+    showPendingUpdate({role}, message);
+  } else {
+    if (pendingUpdate?.previousJobId === lastUpdateJobId) {
+      // A reload or a lost response can race the POST that enqueues the job.
+      if (pendingUpdate.verifyUntil > Date.now()) {
+        showPendingUpdate(pendingUpdate, 'Comprobando si Proxmox recibió la solicitud…');
+        return;
+      }
+      role = pendingUpdate.role;
+      message = 'No se pudo confirmar la recepción de la solicitud.';
+    }
+    showPendingUpdate(null);
+  }
   const status = $('updateJobStatus');
   const title = role === 'check' ? 'Comprobación de versiones' : updateServices[role];
   const text = message ? `${title} · ${message}` : '';
   if (status.textContent !== text) status.textContent = text;
   status.hidden = !text;
-  $('updateProgress').hidden = !pending;
-  if (pending) $('updateProgress').setAttribute('aria-label', role === 'check' ? 'Comprobación de versiones en curso' : 'Actualización en curso');
-  updateChecking = role === 'check' && pending;
-  setCheckButton();
 }
-function setCheckButton() {
+function updateActionsBusy() {
+  return Boolean(pendingUpdate || updateSubmitting || automaticUpdateCheck);
+}
+function updateActionControls() {
+  const busy = updateActionsBusy();
   const button = $('checkUpdates');
-  button.disabled = updateReading || updateBusy || updateSubmitting;
-  button.textContent = updateChecking ? 'Comprobando…' : 'Buscar actualizaciones';
+  button.disabled = busy;
+  const label = pendingUpdate?.role === 'check' ? 'Comprobando…' : automaticUpdateCheck ? 'Buscando…' : 'Buscar actualizaciones';
+  if (button.textContent !== label) button.textContent = label;
+  $('updateAccept').disabled = busy;
+  $('updatesRows').querySelectorAll('[data-update-role]').forEach(action => { action.disabled = busy; });
 }
 async function refreshUpdates() {
   clearTimeout(updateTimer);
   if (!admin() || $('app').hidden || updateReading || updateSubmitting) return;
   updateReading = true;
-  setCheckButton();
   const generation = updateGeneration;
   try {
-    const {checkedAt, services, job} = await request('updates', {timeout:8000});
+    const {checkedAt, services, job, automaticCheck} = await request('updates', {timeout:updateRequestTimeout});
     if (generation !== updateGeneration) return;
     updateEntries = services || {};
-    updateBusy = ['queued', 'running'].includes(job?.state);
-    const messages = job?.role === 'check' ? checkMessages : updateMessages;
-    showUpdateJob(job?.role, job?.message || messages[job?.state], updateBusy);
+    automaticUpdateCheck = automaticCheck === true;
+    showUpdateJob(job);
     const date = new Date(checkedAt);
     const validDate = checkedAt && Number.isFinite(date.getTime());
     const stale = validDate && Date.now() - date.getTime() > 2 * 60 * 60 * 1000;
@@ -177,52 +230,62 @@ async function refreshUpdates() {
       const text = `Actualización requerida · Servicio de control ${updateVersion('panel', panel, 'latest')}${detail}`;
       if (notice.textContent !== text) notice.textContent = text;
     }
-    $('updatesRows').innerHTML = Object.entries(updateServices).map(([role, name]) => {
+    const rows = Object.entries(updateServices).map(([role, name]) => {
       const entry = services?.[role] || {};
       const available = validDate && !stale && entry.status === 'update' && entry.canUpdate;
-      const action = available ? `<button type="button" class="secondary" data-update-role="${role}" ${updateBusy ? 'disabled' : ''}>Actualizar</button>` : '';
+      const action = available ? `<button type="button" class="secondary" data-update-role="${role}">Actualizar</button>` : '';
       const status = role === 'panel' && required && entry.status === 'update' ? 'Actualización requerida' : updateStates[entry.status] || 'Pendiente';
       const route = entry.upgradePath?.map(step => step.version).join(' → ');
       const detail = route || entry.compatibility;
       return `<tr><td><strong>${name}</strong></td><td><code>${esc(updateVersion(role, entry, 'installed'))}</code>${entry.dirty ? '<p class="hint">Con cambios locales</p>' : ''}</td><td><code>${esc(updateVersion(role, entry, 'latest'))}</code></td><td class="${entry.status === 'update' ? 'sync-status' : 'muted'}">${esc(status)}${detail ? `<p class="hint">${esc(detail)}</p>` : ''}</td><td>${action}</td></tr>`;
     }).join('');
+    if (rows !== updateRowsMarkup) {
+      $('updatesRows').innerHTML = rows;
+      updateRowsMarkup = rows;
+    }
   } catch (error) {
     if (generation === updateGeneration) {
-      if (updateBusy && error.status !== 401) $('updateJobStatus').textContent = 'Esperando a que el panel vuelva a responder…';
+      if (pendingUpdate) showPendingUpdate(pendingUpdate, updateReconnectMessage);
       else $('updatesCheckedAt').textContent = error.name === 'TimeoutError' ? 'El informe ha tardado demasiado en responder.' : error.message;
     }
   } finally {
     updateReading = false;
-    setCheckButton();
+    updateActionControls();
     if (admin() && !$('app').hidden && !updateSubmitting) {
-      const delay = generation !== updateGeneration ? 0 : updateBusy ? 3000 : 60000;
+      const delay = generation !== updateGeneration ? 0
+        : pendingUpdate || automaticUpdateCheck || view === 'updates' ? updateRetryDelay : 60000;
       updateTimer = setTimeout(refreshUpdates, delay);
     }
   }
 }
 
-async function searchUpdates() {
-  if (!admin() || $('app').hidden || updateBusy || updateSubmitting || updateReading) return;
+async function submitUpdate(role, action, data) {
   updateGeneration++;
-  updateSubmitting = updateBusy = true;
-  showUpdateJob('check', 'Enviando solicitud…', true);
+  updateSubmitting = true;
+  showPendingUpdate({role, previousJobId:lastUpdateJobId, verifyUntil:Date.now() + updateRequestTimeout}, 'Enviando solicitud…');
   try {
-    const job = await request('check_updates', {method:'POST', data:{}, timeout:8000});
-    updateBusy = ['queued', 'running'].includes(job.state);
-    showUpdateJob('check', checkMessages[job.state], updateBusy);
+    const job = await request(action, {method:'POST', data, timeout:updateRequestTimeout});
+    showUpdateJob(job);
   } catch (error) {
-    updateBusy = false;
-    showUpdateJob('check', '', false);
-    feedback(error.name === 'TimeoutError' ? 'La solicitud de búsqueda ha tardado demasiado en responder.' : error.message, 'error');
+    if (error.status && error.status < 500) showPendingUpdate(null);
+    throw error;
   } finally {
     updateSubmitting = false;
     await refreshUpdates();
   }
 }
+async function searchUpdates() {
+  if (!admin() || $('app').hidden || updateActionsBusy()) return;
+  try {
+    await submitUpdate('check', 'check_updates', {});
+  } catch (error) {
+    feedback(error.name === 'TimeoutError' ? 'La solicitud de búsqueda ha tardado demasiado en responder.' : error.message, 'error');
+  }
+}
 
 function confirmUpdate(role) {
   const entry = updateEntries[role];
-  if (updateBusy || !entry?.canUpdate || entry.status !== 'update') return;
+  if (updateActionsBusy() || !entry?.canUpdate || entry.status !== 'update') return;
   const dialog = $('updateDialog');
   const accept = $('updateAccept');
   $('updateDialogTitle').textContent = `Actualizar ${updateServices[role]}`;
@@ -235,26 +298,18 @@ function confirmUpdate(role) {
   $('updateDialogError').textContent = '';
   accept.textContent = entry.license ? 'Aceptar licencia y actualizar' : 'Actualizar';
   accept.onclick = async () => {
-    accept.disabled = true;
-    updateGeneration++;
-    updateSubmitting = updateBusy = true;
-    showUpdateJob(role, 'Enviando solicitud…', true);
+    if (updateActionsBusy()) return;
     dialog.close();
     try {
-      const job = await post('update_service', {role,version:entry.latest,upgradePath:entry.upgradePath?.map(step=>step.commit),
+      await submitUpdate(role, 'update_service', {role,version:entry.latest,upgradePath:entry.upgradePath?.map(step=>step.commit),
         licenseHash:entry.license?.hash,accepted:Boolean(entry.license)});
-      updateBusy = ['queued', 'running'].includes(job.state);
-      showUpdateJob(role, updateMessages[job.state], updateBusy);
     } catch (error) {
-      $('updateDialogError').textContent = error.message;
-      updateBusy = false;
-      showUpdateJob(role, '', false);
-      if (!$('app').hidden && view === 'updates') dialog.showModal();
-    } finally {
-      updateSubmitting = false;
-      accept.disabled = false;
+      const message = error.name === 'TimeoutError' ? 'La solicitud de actualización ha tardado demasiado en responder.' : error.message;
+      if (!updateActionsBusy() && !$('app').hidden && view === 'updates') {
+        $('updateDialogError').textContent = message;
+        dialog.showModal();
+      } else feedback(message, 'error');
     }
-    await refreshUpdates();
   };
   dialog.showModal();
 }
@@ -676,6 +731,10 @@ $('logout').onclick = guard(async()=>{
 });
 $('settingsButton').onclick = ()=>switchView('settings');
 $('checkUpdates').onclick = searchUpdates;
+$('updateOperation').addEventListener('cancel', event => event.preventDefault());
+$('updateOperation').addEventListener('keydown', event => {
+  if (event.key === 'Escape') event.preventDefault();
+});
 $('addButton').onclick = ()=>{ if (!scanning) openEditor(view === 'devices' ? 'device' : 'service'); };
 $('search').addEventListener('input',renderDirectory);
 $('editorForm').addEventListener('submit',submitEditor);
@@ -693,9 +752,27 @@ $('exportButton').onclick = ()=>{const url=URL.createObjectURL(new Blob([JSON.st
 $('importButton').onclick = ()=>$('importFile').click();
 $('importFile').onchange = guard(async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>4*1024*1024)throw new Error('La copia supera 4 MiB.');const draft=JSON.parse(await file.text());$('confirmTitle').textContent='Importar inventario';$('confirmText').textContent='Se sustituirán los servicios, equipos y categorías por los de la copia. Los accesos se actualizarán automáticamente.';$('confirmAction').textContent='Importar';$('confirmAction').onclick=guard(async()=>{await saveInventory(draft);$('confirmDialog').close();});$('confirmDialog').showModal();}finally{event.target.value='';}});
 document.addEventListener('keydown',event=>{if(event.key==='/'&&!['INPUT','TEXTAREA','SELECT'].includes(event.target.tagName)&&!document.querySelector('dialog[open]')){event.preventDefault();$('search').focus();}if(event.key==='Escape'&&event.target===$('search')){$('search').value='';renderDirectory();}});
-try {
-  session = await request('session');
-  if(session.authenticated)await load();
-  else showLoginDelay(session.login_retry_after);
-} catch(error){loginError.textContent=error.message;}
-finally {loginButton.disabled = loginRetryTimer !== null;}
+async function start() {
+  try {
+    session = await request('session', {timeout:updateRequestTimeout});
+    if (session.authenticated) await load();
+    else {
+      showPendingUpdate(null);
+      showLoginDelay(session.login_retry_after);
+    }
+  } catch (error) {
+    if (pendingUpdate) {
+      showPendingUpdate(pendingUpdate, updateReconnectMessage);
+      setTimeout(start, updateRetryDelay);
+      return;
+    }
+    loginError.textContent = error.message;
+  }
+  loginButton.disabled = loginRetryTimer !== null;
+}
+const restoredUpdate = restorePendingUpdate();
+if (restoredUpdate) {
+  view = 'updates';
+  showPendingUpdate(restoredUpdate, 'Consultando el estado en Proxmox…');
+}
+await start();

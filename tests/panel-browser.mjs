@@ -88,6 +88,7 @@ try {
   await waitFor(`document.querySelectorAll('#updatesRows tr').length === 5`);
   assert(await evaluate(`document.getElementById('updatesCheckedAt').textContent.includes('Pendiente')`), 'Missing update report should be shown as pending');
   const progressVisible = `document.getElementById('updateProgress').getClientRects().length > 0`;
+  const updateModalOpen = `Boolean(document.querySelector('#updateOperation:modal'))`;
   assert(!await evaluate(progressVisible), 'The progress bar must occupy no space when idle');
   if (stateDirectory) {
     const installedRelease = {version:'0.0.1',type:'test',update_required:false};
@@ -110,7 +111,7 @@ try {
       };
     })()`);
     await click('#checkUpdates');
-    assert(await evaluate(`document.getElementById('checkUpdates').disabled&&document.getElementById('checkUpdates').textContent==='Comprobando…'&&(${progressVisible})`), 'Searching must show progress and disable the button');
+    assert(await evaluate(`document.getElementById('checkUpdates').disabled&&document.getElementById('checkUpdates').textContent==='Comprobando…'&&(${updateModalOpen})&&(${progressVisible})`), 'Searching must block the panel and show progress');
     await waitFor(`!document.getElementById('checkUpdates').disabled&&document.getElementById('updatesRows').textContent.includes('0.0.1 (test)')&&document.getElementById('updateJobStatus').textContent.includes('Búsqueda completada')`);
     assert(JSON.parse(fs.readFileSync(updateRequestFile)).role==='check'&&JSON.parse(fs.readFileSync(updatesFile)).checkedAt!==panelReport.checkedAt, 'Manual search must queue a check and refresh the report');
     assert(await evaluate(`document.getElementById('panelUpdateNotice').hidden&&!document.querySelector('#updatesRows button')&&!(${progressVisible})`), 'A current report must have no update buttons or visible progress bar');
@@ -118,6 +119,24 @@ try {
     fs.writeFileSync(updatesFile, JSON.stringify(panelReport));
     await click('#checkUpdates');
     await waitFor(`document.getElementById('panelUpdateNotice').hidden&&document.querySelector('[data-update-role=panel]')?.disabled===false&&!document.getElementById('checkUpdates').disabled`);
+    const automaticCheckFile = path.join(stateDirectory, 'update-check.json');
+    const automaticSearchVisible = `document.getElementById('checkUpdates').textContent==='Buscando…'&&document.getElementById('checkUpdates').disabled&&document.querySelector('[data-update-role=panel]')?.disabled`;
+    await click('[data-update-role=panel]');
+    fs.writeFileSync(automaticCheckFile, JSON.stringify({expiresAt:Math.floor(Date.now()/1000)+60}));
+    await waitFor(automaticSearchVisible);
+    assert(await evaluate(`!(${updateModalOpen})&&document.getElementById('updateDialog').open&&document.getElementById('updateAccept').disabled`), 'An automatic check must disable an open confirmation without showing progress over it');
+    await click('#updateCancel');
+    await click('[data-view=services]');
+    assert(await evaluate(`!(${updateModalOpen})&&!document.getElementById('directory').hidden`), 'The directory must remain usable during an automatic check');
+    await evaluate('window.beforeAutomaticReload = true');
+    await call('Page.reload', {ignoreCache:true});
+    await waitFor(`!window.beforeAutomaticReload&&document.getElementById('app')?.hidden===false`);
+    await click('[data-view=updates]');
+    await waitFor(automaticSearchVisible);
+    assert(!await evaluate(updateModalOpen), 'Reload must never open a modal for an automatic search');
+    fs.unlinkSync(automaticCheckFile);
+    await waitFor(`!document.getElementById('checkUpdates').disabled&&document.querySelector('[data-update-role=panel]')?.disabled===false`);
+
     const futureRelease = {...latestRelease,version:'0.0.3',minimum_version:'0.0.2'};
     Object.assign(panelReport.services.panel,{latest:'c'.repeat(40),tag:'panel-v0.0.3',latestRelease:{...futureRelease,update_required:false},
       status:'incompatible',canUpdate:false,compatibility:'La versión intermedia 0.0.2 debe estar publicada.'});
@@ -145,10 +164,56 @@ try {
     assert(await evaluate(`!document.getElementById('updateDialog').open&&!document.querySelector('[data-update-role=panel]').disabled`), 'Cancelling must leave the selected update available');
     await evaluate(`(()=>{const fetch=window.fetch;window.fetch=async (input,options)=>{if(options?.body?.includes('update_service'))await new Promise(r=>setTimeout(r,400));return fetch(input,options);};})()`);
     await click('[data-update-role=panel]');await click('#updateAccept');
-    assert(await evaluate(`(${progressVisible})&&!document.getElementById('updateProgress').hasAttribute('value')`), 'The progress bar must appear as soon as the update is confirmed');
+    assert(await evaluate(`(${updateModalOpen})&&(${progressVisible})&&!document.getElementById('updateDialog').open`), 'Confirming the update must switch to the blocking progress dialog');
     await waitFor(`document.getElementById('updateJobStatus').textContent.includes('Actualización completada')&&!document.querySelector('[data-update-role=panel]')&&!(${progressVisible})&&document.getElementById('panelUpdateNotice').hidden`);
+
+    const jobFile = path.join(stateDirectory, 'update-job.json');
+    for (const {role, title, ignoreCache, result} of [
+      {role:'check', title:'Buscando actualizaciones', ignoreCache:false, result:'success'},
+      {role:'panel', title:'Actualizando Servicio de control', ignoreCache:true, result:'failure'},
+    ]) {
+      const job = {id:'browser-' + role, role, created:Math.floor(Date.now()/1000)};
+      fs.writeFileSync(updateRequestFile, JSON.stringify(job));
+      await click('[data-view=services]');
+      await click('[data-view=updates]');
+      await waitFor(`(${updateModalOpen})&&document.getElementById('updateOperationStatus').textContent.includes('En cola')`);
+      await call('Input.dispatchKeyEvent', {type:'keyDown', key:'Escape', code:'Escape', windowsVirtualKeyCode:27});
+      await call('Input.dispatchKeyEvent', {type:'keyUp', key:'Escape', code:'Escape', windowsVirtualKeyCode:27});
+      assert(await evaluate(updateModalOpen), 'Escape must leave the update modal open');
+      const settings = await evaluate(`(()=>{const b=document.getElementById('settingsButton').getBoundingClientRect();return {x:b.x+b.width/2,y:b.y+b.height/2};})()`);
+      await call('Input.dispatchMouseEvent', {...settings, type:'mousePressed', button:'left', clickCount:1});
+      await call('Input.dispatchMouseEvent', {...settings, type:'mouseReleased', button:'left', clickCount:1});
+      const modal = await evaluate(`({open:${updateModalOpen},updates:!document.getElementById('updatesView').hidden,status:document.getElementById('updateJobStatus').textContent})`);
+      assert(modal.open && modal.updates, 'A click behind the update modal must leave it open: ' + JSON.stringify(modal));
+
+      fs.writeFileSync(jobFile, JSON.stringify({...job,state:'running',message:'Trabajo en curso en Proxmox.'}));
+      const interruption = ignoreCache && await call('Page.addScriptToEvaluateOnNewDocument', {source:`
+        const originalFetch = window.fetch;
+        window.fetch = (input, options) => {
+          if (String(input).includes('action=session')) {
+            window.fetch = originalFetch;
+            return Promise.reject(new TypeError('Backend restarting'));
+          }
+          return originalFetch(input, options);
+        };
+      `});
+      await evaluate('window.beforeUpdateReload = true');
+      await call('Page.reload', {ignoreCache});
+      if (interruption) {
+        await waitFor(`!window.beforeUpdateReload&&(${updateModalOpen})&&document.getElementById('updateOperationStatus').textContent.includes('vuelva a responder')`);
+        await call('Page.removeScriptToEvaluateOnNewDocument', interruption);
+      }
+      await waitFor(`!window.beforeUpdateReload&&(${updateModalOpen})&&document.getElementById('updateOperationStatus').textContent==='Trabajo en curso en Proxmox.'`);
+      assert(await evaluate(`document.getElementById('updateOperationTitle').textContent===${JSON.stringify(title)}&&getComputedStyle(document.getElementById('updateProgress'),'::before').animationName==='update-progress-sweep'`), 'Reload must restore the operation title and animation');
+      fs.writeFileSync(jobFile + '.tmp', JSON.stringify({...job,state:result}));
+      fs.renameSync(jobFile + '.tmp', jobFile);
+      const completion = result === 'success' ? 'Búsqueda completada' : 'La actualización falló';
+      await waitFor(`!(${updateModalOpen})&&!(${progressVisible})&&document.getElementById('updateJobStatus').textContent.includes(${JSON.stringify(completion)})`);
+    }
+    console.log('Update modal blocks interaction, survives reloads and temporary API outage, and closes on completion or failure.');
   }
   await checkRefreshTimeout('checkUpdates', 'check_updates', 'Comprobando…', 'feedback');
+  assert(await evaluate(`!(${updateModalOpen})&&document.getElementById('updateJobStatus').textContent.includes('No se pudo confirmar')`), 'A timed-out request with no job must release the modal');
   await click('[data-view=services]');
   assert(await evaluate(`document.getElementById('scanRange').value==='192.168.1.0/24'&&document.querySelector('[data-all-networks]').classList.contains('selected')`),'Scanner must initially select all configured networks');
   assert(await evaluate(`document.getElementById('applyButton') === null && document.getElementById('retryButton').hidden`),'Normal workflow must not require manual publication');

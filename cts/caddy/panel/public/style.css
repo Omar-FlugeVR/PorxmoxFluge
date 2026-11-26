@@ -17,7 +17,13 @@ html{scrollbar-gutter:stable}*{box-sizing:border-box}body{margin:0;min-height:10
 @media(max-width:380px){.header{--header-logo-width:118px;--identity-inset:12px;gap:12px}.header h1{font-size:14px}.header-identity{padding-top:0;padding-bottom:0}.installation-name{font-size:14px;line-height:1.2}}
 
 .scan-scope{overflow-wrap:anywhere}
-#updateProgress:not([hidden]){appearance:auto;accent-color:var(--mint);height:8px;display:block;margin:0 0 18px}
+html:has(#updateOperation[open]){overflow:hidden}
+#updateOperation{width:min(500px,calc(100% - 32px))}
+#updateOperation .dialog-heading{margin-bottom:12px}
+#updateProgress{position:relative;overflow:hidden;height:8px;margin-top:24px;border-radius:999px;background:#243c34}
+#updateProgress::before{content:"";position:absolute;inset:0 auto 0 0;width:45%;background:linear-gradient(90deg,transparent,var(--mint) 55%,#d4fff5 88%,transparent);animation:update-progress-sweep 1.5s ease-in-out infinite}
+@keyframes update-progress-sweep{from{transform:translateX(-100%)}to{transform:translateX(225%)}}
+@media(prefers-reduced-motion:reduce){#updateProgress::before{animation:none;transform:translateX(60%)}}
 #ndiRefresh:disabled,#checkUpdates:disabled{cursor:not-allowed;color:var(--text);border-color:var(--border)}
 #inventoryBackupPanel{grid-column:1/-1}
 

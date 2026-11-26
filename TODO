@@ -8,6 +8,10 @@ USUARIO:
     ☐ exportar config por si acaso?
     ☐ traspasar el repo a fluge?
     ✔ guardado? @done(26-11-26 17:42)
+    ☐ mejorar la parte de front end del update y ndi
+    ☐ puedo poner nombres y tal a los releases?
+    ☐ logs centralizados
+    
 
 
 Codex:
@@ -229,6 +233,8 @@ Codex:
     ☑ Preparar el workflow para publicar el manifiesto como adjunto al retirar panel-version.json de main. Simular la publicación puente, la publicación con adjunto y el reintento de un borrador en un remoto Git local.
     ☑ Retirar panel-version.json del árbol de trabajo tras confirmar el usuario que la VM está en 0.0.5. Dejar Publicar panel en modo adjunto y documentar la instalación por tag. Confirmar que GitHub conserva y entrega el manifiesto del tag puente y simular la publicación sin mover main. Pendiente la primera publicación real con adjunto.
     ☑ Añadir a Publicar panel el selector de tipo con conservar, hotfix, alpha, beta y oficial. Comprobar todas las opciones y simular una publicación beta con su tipo en el manifiesto adjunto.
+    ☑ Bloquear el panel con una ventana y una barra animada al buscar manualmente o instalar actualizaciones. Recuperar la operación de Proxmox tras recargar y desbloquear el panel al terminar o fallar. Verificado en Chromium con recarga normal, recarga sin caché y un corte simulado de la API. Pendiente desplegar en Proxmox.
+    ☑ Publicar el estado de la búsqueda horaria de Proxmox. Mostrar Buscando… y desactivar Buscar actualizaciones y Actualizar mientras dura, con el panel disponible para navegar. Verificado con un doble de Proxmox, pruebas HTTP y Chromium, incluida la recarga y la reactivación de los botones. Pendiente desplegar en Proxmox.
 
     Emisores NDI y estado de las consultas — 26/11/2026
     ☑ Combinar el Finder con el listener de emisores de NDI 6.3 y posteriores. Respetar los grupos, distinguir emisores del mismo nombre y conservar su historial. Verificado con dobles del SDK y pruebas de persistencia.
