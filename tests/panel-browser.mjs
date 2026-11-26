@@ -22,6 +22,29 @@ const waitFor = async expression => {for(let n=0;n<150;n++){if(await evaluate(ex
 const click = selector => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
 const fill = (selector,value) => evaluate(`(()=>{const input=document.querySelector(${JSON.stringify(selector)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
 const assert = (condition,message) => {if(!condition)throw new Error(message);};
+const checkRefreshTimeout = async (id, endpoint, busyLabel, messageId) => {
+  await waitFor(`!document.getElementById('${id}').disabled`);
+  await evaluate(`(() => {
+    const originalFetch=window.fetch, originalTimeout=AbortSignal.timeout;
+    window.refreshRequests=0;
+    AbortSignal.timeout=ms=>originalTimeout.call(AbortSignal,Math.min(ms,500));
+    window.fetch=(input,options)=>{
+      if(!String(input).includes(${JSON.stringify(endpoint)}))return originalFetch(input,options);
+      window.refreshRequests++;
+      return new Promise((_,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true}));
+    };
+    window.restoreRefresh=()=>{window.fetch=originalFetch;AbortSignal.timeout=originalTimeout;};
+  })()`);
+  try {
+    await click(`#${id}`);
+    assert(await evaluate(`(()=>{const b=document.getElementById('${id}');return b.disabled&&b.textContent===${JSON.stringify(busyLabel)}&&getComputedStyle(b).cursor==='not-allowed';})()`), `${id} should be disabled and show the pending state`);
+    await click(`#${id}`);
+    assert(await evaluate(`window.refreshRequests===1`), `${id} should ignore a second click`);
+    await waitFor(`!document.getElementById('${id}').disabled&&document.getElementById('${messageId}').textContent.includes('tardado demasiado')`);
+  } finally {
+    await evaluate(`window.restoreRefresh()`);
+  }
+};
 const screenshot = async (name,selector) => {if(!output)return;fs.mkdirSync(output,{recursive:true});const clip=selector?await evaluate(`(()=>{const box=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:box.x+scrollX,y:box.y+scrollY,width:box.width,height:box.height,scale:1};})()`):undefined;const result=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,...(clip?{clip}:{})});fs.writeFileSync(path.join(output,name+'.png'),Buffer.from(result.data,'base64'));};
 try {
   await call('Page.enable');await call('Runtime.enable');
@@ -64,21 +87,36 @@ try {
   await waitFor(`document.querySelectorAll('#updatesRows tr').length === 5`);
   assert(await evaluate(`document.getElementById('updatesCheckedAt').textContent.includes('Pendiente')`), 'Missing update report should be shown as pending');
   if (stateDirectory) {
-    fs.writeFileSync(path.join(stateDirectory, 'updates.json'), JSON.stringify({checkedAt:new Date().toISOString(),services:{
-      panel:{installed:'a'.repeat(40),latest:'b'.repeat(40),status:'update',canUpdate:true},
+    const installedRelease = {version:'0.0.1',type:'test',update_required:false};
+    const latestRelease = {version:'0.0.2',type:'test',update_required:true};
+    const panelReport = {checkedAt:new Date().toISOString(),services:{
+      panel:{installed:'a'.repeat(40),latest:null,installedRelease,latestRelease:installedRelease,status:'current',canUpdate:false},
       companion:{installed:'5.1.3',latest:'5.1.3',status:'current'},
       ndi:{installed:'SDK 6.3.1',status:'manual'},
-    }}));
+    }};
+    const updatesFile = path.join(stateDirectory, 'updates.json');
+    fs.writeFileSync(updatesFile, JSON.stringify(panelReport));
     await click('#reloadUpdates');
-    await waitFor(`document.getElementById('updatesRows').textContent.includes('Actualización disponible')`);
-    assert(await evaluate(`document.getElementById('updatesRows').textContent.includes('aaaaaaaa')&&document.getElementById('updatesRows').textContent.includes('Revisión manual')`), 'Update report should identify deployed commit and manual NDI review');
+    await waitFor(`document.getElementById('updatesRows').textContent.includes('0.0.1 (test)')`);
+    assert(await evaluate(`document.getElementById('panelUpdateNotice').hidden&&document.querySelector('[data-update-role=panel]').disabled`), 'An installer-only commit must not offer a panel update');
+    Object.assign(panelReport.services.panel,{latest:'b'.repeat(40),latestRelease,status:'update',canUpdate:true});
+    fs.writeFileSync(updatesFile, JSON.stringify(panelReport));
+    await click('#reloadUpdates');
+    await waitFor(`document.getElementById('updatesRows').textContent.includes('Actualización requerida')`);
+    assert(await evaluate(`document.getElementById('updatesRows').textContent.includes('0.0.2 (test)')&&!document.getElementById('updatesRows').textContent.includes('aaaaaaaa')&&!document.querySelector('#updatesRows a')`), 'Update report should display public version labels without change links');
+    await click('[data-view=services]');
+    assert(await evaluate(`!document.getElementById('panelUpdateNotice').hidden`), 'The required update must be visible outside the updates view');
+    await click('[data-view=updates]');
     await click('[data-update-role=panel]');
     await waitFor(`document.getElementById('updateDialog').open`);
     await click('#updateCancel');
     assert(await evaluate(`!document.getElementById('updateDialog').open&&!document.querySelector('[data-update-role=panel]').disabled`), 'Cancelling must leave the selected update available');
+    await evaluate(`(()=>{const fetch=window.fetch;window.fetch=async (input,options)=>{if(options?.body?.includes('update_service'))await new Promise(r=>setTimeout(r,400));return fetch(input,options);};})()`);
     await click('[data-update-role=panel]');await click('#updateAccept');
-    await waitFor(`document.getElementById('updateJobStatus').textContent.includes('Actualización completada')&&document.querySelector('[data-update-role=panel]').disabled`);
+    assert(await evaluate(`!document.getElementById('updateProgress').hidden&&!document.getElementById('updateProgress').hasAttribute('value')`), 'The progress bar must appear as soon as the update is confirmed');
+    await waitFor(`document.getElementById('updateJobStatus').textContent.includes('Actualización completada')&&document.querySelector('[data-update-role=panel]').disabled&&document.getElementById('updateProgress').hidden&&document.getElementById('panelUpdateNotice').hidden`);
   }
+  await checkRefreshTimeout('reloadUpdates', 'action=updates', 'Comprobando…', 'updatesCheckedAt');
   await click('[data-view=services]');
   assert(await evaluate(`document.getElementById('scanRange').value==='192.168.1.0/24'&&document.querySelector('[data-all-networks]').classList.contains('selected')`),'Scanner must initially select all configured networks');
   assert(await evaluate(`document.getElementById('applyButton') === null && document.getElementById('retryButton').hidden`),'Normal workflow must not require manual publication');
@@ -211,8 +249,23 @@ try {
     const count = {normal:'5',empty:'0',offline:'—',missing_lib:'—'}[scenario];
     await click('[data-view=settings]');await fill('#ndiForm [name=mock_scenario]',scenario);await click('#ndiSave');await waitFor(`!document.getElementById('ndiSave').disabled`);await click('#ndiTab');await waitFor(`document.getElementById('ndiSourceCount').textContent===${JSON.stringify(count)}&&document.getElementById('ndiState').textContent===${JSON.stringify(scenario==='offline'?'Offline':'Online')}`);
     assert(await evaluate(`document.getElementById('ndiWarning').hidden`)===!['offline','missing_lib'].includes(scenario),`NDI warning presentation failed for ${scenario}`);
-    const availability=scenario==='normal'?'available':scenario==='empty'?'absent':'unknown';assert(await evaluate(`document.querySelectorAll('#ndiSources .ndi-availability.${availability}').length===7`),`NDI must retain previous devices with accurate observation state for ${scenario}`);
-    if(scenario==='empty')assert(await evaluate(`document.getElementById('ndiEvents').textContent.includes('Deja de estar visible')`),'Missing devices must be recorded in the activity log');
+    const availability=scenario==='normal'?'available':scenario==='empty'?'absent':'unknown';
+    assert(await evaluate(`document.querySelectorAll('#ndiSources .ndi-availability.${availability}').length===${scenario==='missing_lib'?6:7}`),`NDI must retain previous devices with accurate observation state for ${scenario}`);
+    assert(await evaluate(`document.querySelectorAll('[data-ndi-forget]').length===${scenario==='empty'?7:0}`),'NDI must only offer removal for confirmed absent entries');
+    if (scenario==='empty') {
+      assert(await evaluate(`document.getElementById('ndiEvents').textContent.includes('Deja de estar visible')&&document.getElementById('ndiReceiverNote').textContent.includes('Allow Receiver Advertising')`),'Missing devices must be logged and zero advertised receivers must explain how to advertise');
+      await click('[data-ndi-forget]');
+      await click('#confirmDialog .quiet');
+      assert(await evaluate(`document.querySelectorAll('[data-ndi-forget]').length===7`),'Cancelling must retain all entries');
+      await click('[data-ndi-forget]');
+      await click('#confirmAction');
+      await waitFor(`!document.getElementById('ndiRefresh').disabled&&document.querySelectorAll('[data-ndi-forget]').length===6&&document.getElementById('ndiEvents').textContent.includes('Deja de estar visible')`);
+      await call('Page.reload');
+      await waitFor(`!document.getElementById('ndiTab').hidden&&!document.getElementById('app').hidden`);
+      await evaluate(`(()=>{window.ndiStatusRequests=0;const original=window.fetch;window.fetch=(input,options)=>{if(String(input).includes('api/ndi/status'))window.ndiStatusRequests++;return original(input,options);};})()`);
+      await click('#ndiTab');
+      await waitFor(`document.querySelectorAll('[data-ndi-forget]').length===6`);
+    }
   }
   assert(await evaluate(`document.getElementById('ndiEvents').textContent.includes('visible de nuevo')`),'Recovered devices must appear in the log');
   await click('[data-view=settings]');await fill('#ndiForm [name=mock_scenario]','missing_lib');await click('#ndiTest');
@@ -222,6 +275,8 @@ try {
   await click('#ndiInstallFromTest');await waitFor(`!document.getElementById('ndiRuntimeAccept').disabled`);
   await click('#ndiRuntimeAccept');await waitFor(`!document.getElementById('ndiRuntimeDialog').open&&document.getElementById('ndiInstallFromTest').hidden&&document.getElementById('ndiTestResult').textContent.includes('5 fuentes')`);
   await click('#ndiTab');await waitFor(`document.getElementById('ndiSourceCount').textContent==='5'`);
+  await checkRefreshTimeout('ndiRefresh', 'api/ndi/status', 'Consultando…', 'ndiWarning');
+  await click('#ndiRefresh');await waitFor(`document.getElementById('ndiState').textContent==='Online'`);
   await click('#ndiClearLog');await waitFor(`document.getElementById('ndiEventCount').textContent.startsWith('0 eventos')&&document.getElementById('ndiClearLog').disabled`);assert(await evaluate(`document.querySelectorAll('#ndiSources tbody tr').length===7&&document.querySelectorAll('#ndiSources time[datetime]').length===7&&document.getElementById('ndiEvents').textContent.includes('Registro vacío')`),'Clearing the log must preserve all devices and their latest sightings');await click('#ndiRefresh');await waitFor(`!document.getElementById('ndiRefresh').disabled`);assert(await evaluate(`document.getElementById('ndiEventCount').textContent.startsWith('0 eventos')`),'Refresh must not resurrect cleared events');
   for(const width of [320,390,768,1440]) {await call('Emulation.setDeviceMetricsOverride',{width,height:1200,deviceScaleFactor:1,mobile:false});await click('#ndiTab');assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),`NDI view overflows at ${width}px`);if(width===390)await screenshot('panel-ndi-mobile');await click('[data-view=settings]');assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),`Enabled NDI settings overflow at ${width}px`);}
   await screenshot('panel-ndi-settings','#ndiForm');await click('#ndiEnabled');await waitFor(`document.getElementById('ndiTab').hidden&&!document.getElementById('ndiEnabled').disabled`);const ndiDisabledRequests=await evaluate(`window.ndiStatusRequests`);await evaluate(`new Promise(resolve=>setTimeout(resolve,2300))`);assert(await evaluate(`window.ndiStatusRequests`)===ndiDisabledRequests,'Disabling NDI must stop every polling request');assert(await evaluate(`(async()=>JSON.stringify(await(await fetch('api/ndi/status')).json())==='{"enabled":false}')()`),'Disabled endpoint must return only enabled=false');

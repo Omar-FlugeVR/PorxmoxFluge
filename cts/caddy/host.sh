@@ -50,7 +50,7 @@ configure_panel_updates() {
         systemctl stop studio-infra-updates.timer studio-infra-updates.service || return
     fi
     # El temporizador ejecuta la copia desplegada. Un git pull solo cambia el checkout.
-    for path in updates.sh scripts/{check_updates.py,run_updates.py,ndi_release.py,ndi_sdk.py,common.sh,ct-network.py,inventory.py,post-install.sh,render.py} \
+    for path in updates.sh scripts/{check_updates.py,run_updates.py,panel_release.py,ndi_release.py,ndi_sdk.py,common.sh,ct-network.py,inventory.py,post-install.sh,render.py} \
         scripts/provision/upgrade-software.sh \
         cts/{adguard,caddy,companion,ndi}/host.sh; do
         install -D -m 0600 -- "$REPO_DIR/$path" "$snapshot/$path" || return
@@ -63,7 +63,7 @@ configure_panel_updates() {
 }
 
 apply_caddy() {
-    local stage revision='null' dirty=false changes
+    local stage revision='' dirty=false changes
     need_commands tar
     mkdir -p -- "$REPO_DIR/.secrets"
     chmod 700 -- "$REPO_DIR/.secrets"
@@ -94,12 +94,19 @@ PY
     tar -C "$REPO_DIR/cts/caddy/panel" --exclude='__pycache__' --exclude='*.pyc' \
         --exclude='./bin/demo-router.php' -cf "$TEMP_DIR/panel.tar" .
     if revision="$(git -C "$REPO_DIR" rev-parse --verify HEAD 2>/dev/null)" && [[ "$revision" =~ ^[a-f0-9]{40}$ ]]; then
-        revision="\"$revision\""
-        if ! changes="$(git -C "$REPO_DIR" status --porcelain -- cts/caddy/panel)" || [[ -n "$changes" ]]; then dirty=true; fi
+        if ! changes="$(git -C "$REPO_DIR" status --porcelain -- cts/caddy/panel panel-version.json)" || [[ -n "$changes" ]]; then dirty=true; fi
     else
-        revision='null'
+        revision=''
     fi
-    printf '{"commit":%s,"dirty":%s}\n' "$revision" "$dirty" > "$TEMP_DIR/revision.json"
+    PYTHONPATH="$REPO_DIR/scripts" python3 - "$REPO_DIR/panel-version.json" "$TEMP_DIR/revision.json" "$revision" "$dirty" <<'PY'
+import json, sys
+from pathlib import Path
+from panel_release import validate_release
+
+source, destination, commit, dirty = sys.argv[1:]
+release = validate_release(json.loads(Path(source).read_text(encoding='utf-8')))
+Path(destination).write_text(json.dumps({'commit': commit or None, 'dirty': dirty == 'true', 'release': release}), encoding='utf-8')
+PY
     stage="$(pct exec "$CADDY_CT_ID" -- mktemp -d /tmp/studio-caddy.XXXXXXXX)"
     pct push "$CADDY_CT_ID" "$TEMP_DIR/rendered/caddy/Caddyfile" "$stage/Caddyfile" --perms 0600
     pct push "$CADDY_CT_ID" "$TEMP_DIR/rendered/caddy/seed.json" "$stage/seed.json" --perms 0600

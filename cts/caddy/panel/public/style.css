@@ -17,6 +17,8 @@ html{scrollbar-gutter:stable}*{box-sizing:border-box}body{margin:0;min-height:10
 @media(max-width:380px){.header{--header-logo-width:118px;--identity-inset:12px;gap:12px}.header h1{font-size:14px}.header-identity{padding-top:0;padding-bottom:0}.installation-name{font-size:14px;line-height:1.2}}
 
 .scan-scope{overflow-wrap:anywhere}
+#updateProgress{appearance:auto;accent-color:var(--mint);height:8px;display:block;margin:0 0 18px}
+#ndiRefresh:disabled,#reloadUpdates:disabled{cursor:not-allowed;color:var(--text);border-color:var(--border)}
 #inventoryBackupPanel{grid-column:1/-1}
 
 .networks-panel{grid-column:1/-1}.network-list{margin-top:14px}.network-row{display:flex;align-items:center;gap:20px;padding:18px 0;border-bottom:1px solid var(--border)}.network-row:last-child{border-bottom:0}.network-summary{min-width:0}.network-summary strong{display:block;font-size:16px;font-weight:500;overflow-wrap:anywhere}.network-summary>code{display:block;margin:8px 0 0;color:var(--mint)}.network-summary .hint{margin:6px 0 0}.network-row .cell-actions{margin-left:auto;gap:22px}.network-row .edit-button{min-height:36px;padding:8px 0;font-size:14px}.network-row button:disabled{cursor:default}#scanPresets button{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;text-align:left}#scanPresets code{font-size:12px;color:var(--muted)}

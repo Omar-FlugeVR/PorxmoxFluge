@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Bounded TCP + NDI finder probe. No HTTP to 5959, media receiver or background work.
+"""Bounded TCP probe and NDI discovery with the Finder and SDK listeners.
 
-ABI checked against the official NDI SDK v6 Linux Find.h and structs.h.
+ABI checked against the official NDI SDK v6 Linux Find.h, SendListener.h, and RecvListener.h.
 NDI_CONFIG_DIR is set before loading/initializing the SDK, in this isolated process.
 """
 import ctypes
 import ctypes.util
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -24,8 +25,16 @@ class Source(ctypes.Structure):
     _fields_ = [('p_ndi_name', ctypes.c_char_p), ('p_url_address', ctypes.c_char_p)]
 
 
-class ReceiverCreate(ctypes.Structure):
+class ListenerCreate(ctypes.Structure):
     _fields_ = [('p_url_address', ctypes.c_char_p)]
+
+
+class Sender(ctypes.Structure):
+    # Standard SDK 6.3+ Processing.NDI.SendListener.h.
+    _fields_ = [('p_uuid', ctypes.c_char_p), ('p_name', ctypes.c_char_p), ('p_metadata', ctypes.c_char_p),
+                ('p_address', ctypes.c_char_p), ('port', ctypes.c_int),
+                ('p_groups', ctypes.POINTER(ctypes.c_char_p)), ('num_groups', ctypes.c_uint32),
+                ('events_subscribed', ctypes.c_bool)]
 
 
 class Receiver(ctypes.Structure):
@@ -61,6 +70,54 @@ def source_details(name, address):
     return {'full_name': name, 'host': match[1] if match else name, 'stream': match[2] if match else '', 'url': address}
 
 
+def decode(value):
+    return (value or b'').decode('utf-8', errors='replace')
+
+
+def bind_listener(lib, direction, collection, record, descriptor):
+    prefix = f'NDIlib_{direction}_listener_'
+    signatures = {'create': (ctypes.c_void_p, [ctypes.POINTER(ListenerCreate)]),
+                  'destroy': (None, [ctypes.c_void_p]), 'is_connected': (ctypes.c_bool, [ctypes.c_void_p]),
+                  f'wait_for_{collection}': (ctypes.c_bool, [ctypes.c_void_p, ctypes.c_uint32]),
+                  f'get_{collection}': (ctypes.POINTER(record), [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)])}
+    try:
+        functions = {name: getattr(lib, prefix + name) for name in signatures}
+    except AttributeError:
+        return {}, None
+    for name, (result, arguments) in signatures.items():
+        functions[name].restype, functions[name].argtypes = result, arguments
+    return functions, functions['create'](ctypes.byref(descriptor))
+
+
+def add_advertised_senders(sources, items, count, groups):
+    expected_groups = {group.strip() for group in groups.split(',') if group.strip()} or {'Public'}
+    finder_endpoints = {(item['full_name'].casefold(), item['url']): item for item in sources}
+    advertised_ids = set()
+    for index in range(count):
+        item = items[index]
+        identity = decode(item.p_uuid)
+        if identity and identity in advertised_ids:
+            continue
+        advertised_ids.add(identity)
+        item_groups = {decode(item.p_groups[i]) for i in range(min(item.num_groups, 256))} if item.p_groups else set()
+        if expected_groups.isdisjoint(item_groups or {'Public'}):
+            continue
+        address = decode(item.p_address)
+        if address and 0 < item.port <= 65535:
+            if ':' in address and not address.startswith('['):
+                address = f'[{address}]'
+            address = f'{address}:{item.port}'
+        name = decode(item.p_name)
+        if not name:
+            continue
+        source = finder_endpoints.pop((name.casefold(), address), None)
+        if source is None:
+            source = source_details(name, address)
+            sources.append(source)
+        if identity:
+            source['id'] = identity
+
+
 def enumerate_sources(settings, deadline, loader=load_library, with_receivers=False):
     os.environ['NDI_CONFIG_DIR'] = settings['config_dir']
     if settings.get('resolved_ip'):
@@ -83,7 +140,7 @@ def enumerate_sources(settings, deadline, loader=load_library, with_receivers=Fa
     if not lib.NDIlib_initialize():
         raise LibraryUnavailable('libndi no pudo inicializarse; revisa compatibilidad de CPU y dependencias del runtime.')
     finder = None
-    listener = None
+    sender_listener = receiver_listener = None
     receiver_supported = False
     receiver_warning = 'El runtime no permite consultar receptores anunciados; se necesita NDI 6.2 o posterior.'
     try:
@@ -92,51 +149,58 @@ def enumerate_sources(settings, deadline, loader=load_library, with_receivers=Fa
         finder = lib.NDIlib_find_create_v2(ctypes.byref(FindCreate(True, groups, None)))
         if not finder:
             raise LibraryUnavailable('libndi no pudo crear el finder. Revisa el runtime y su configuración.')
+        waits = [(lib.NDIlib_find_wait_for_sources, lib.NDIlib_find_get_current_sources, finder)]
+        address = settings.get('resolved_ip', settings.get('ip', ''))
+        endpoint = (f'[{address}]' if ':' in address else address) + ':' + str(settings['port']) if address else None
+        descriptor = ListenerCreate(endpoint.encode('utf-8') if endpoint else None)
+        tx, sender_listener = bind_listener(lib, 'send', 'senders', Sender, descriptor)
+        if sender_listener:
+            waits.append((tx['wait_for_senders'], tx['get_senders'], sender_listener))
         if with_receivers:
-            receiver_signatures = {
-                'NDIlib_recv_listener_create':(ctypes.c_void_p,[ctypes.POINTER(ReceiverCreate)]),
-                'NDIlib_recv_listener_destroy':(None,[ctypes.c_void_p]),
-                'NDIlib_recv_listener_is_connected':(ctypes.c_bool,[ctypes.c_void_p]),
-                'NDIlib_recv_listener_wait_for_receivers':(ctypes.c_bool,[ctypes.c_void_p,ctypes.c_uint32]),
-                'NDIlib_recv_listener_get_receivers':(ctypes.POINTER(Receiver),[ctypes.c_void_p,ctypes.POINTER(ctypes.c_uint32)])}
-            try:
-                functions = {name:getattr(lib,name) for name in receiver_signatures}
-                for name,(result,arguments) in receiver_signatures.items():
-                    functions[name].restype, functions[name].argtypes = result,arguments
-                receiver_supported = True
-                address = settings.get('resolved_ip',settings.get('ip',''))
-                endpoint = (f'[{address}]' if ':' in address else address) + ':' + str(settings['port'])
-                endpoint_bytes = endpoint.encode('utf-8')
-                listener = lib.NDIlib_recv_listener_create(ctypes.byref(ReceiverCreate(endpoint_bytes)))
+            rx, receiver_listener = bind_listener(lib, 'recv', 'receivers', Receiver, descriptor)
+            receiver_supported = bool(rx)
+            if receiver_supported:
                 receiver_warning = 'No se ha podido consultar los receptores. Revisa que Discovery Server admita NDI 6.2 o posterior.'
-            except AttributeError:
-                pass
+            if receiver_listener:
+                waits.append((rx['wait_for_receivers'], rx['get_receivers'], receiver_listener))
         # Accumulate discovery updates for the entire budget; the first event is often partial.
         while time.monotonic() < deadline:
-            lib.NDIlib_find_wait_for_sources(finder, max(1, min(100 if listener else 200, int((deadline-time.monotonic())*1000))))
-            if listener and time.monotonic() < deadline:
-                lib.NDIlib_recv_listener_wait_for_receivers(listener,max(1,min(100,int((deadline-time.monotonic())*1000))))
+            for wait, current, handle in waits:
+                remaining = int((deadline - time.monotonic()) * 1000)
+                if remaining <= 0:
+                    break
+                if wait(handle, min(100, remaining)):
+                    current(handle, ctypes.byref(ctypes.c_uint32()))
+            if remaining <= 0:
+                break
         count = ctypes.c_uint32()
         sources = lib.NDIlib_find_get_current_sources(finder, ctypes.byref(count))
         if count.value > 10000:
             raise LibraryUnavailable('La respuesta NDI supera el máximo de 10.000 fuentes.')
         # Copy borrowed SDK memory before destroying the finder; preserve opaque URL values.
-        result = [source_details((sources[i].p_ndi_name or b'').decode('utf-8', errors='replace'),
-                               (sources[i].p_url_address or b'').decode('utf-8', errors='replace')) for i in range(count.value)] if sources else []
+        result = [source_details(decode(sources[i].p_ndi_name), decode(sources[i].p_url_address)) for i in range(count.value)] if sources else []
+        if sender_listener and tx['is_connected'](sender_listener):
+            count = ctypes.c_uint32()
+            advertised = tx['get_senders'](sender_listener, ctypes.byref(count))
+            if advertised and count.value <= 10000:
+                add_advertised_senders(result, advertised, count.value, settings['groups'])
+        names = Counter(item['full_name'] for item in result)
+        for item in result:
+            if names[item['full_name']] > 1 and not item.get('id'):
+                item['id'] = f'{item["full_name"]}\0{item["url"]}'
         if not with_receivers:
             return result
         receivers = []
-        receiver_observed = bool(listener and lib.NDIlib_recv_listener_is_connected(listener))
+        receiver_observed = bool(receiver_listener and rx['is_connected'](receiver_listener))
         if receiver_observed:
             receiver_count = ctypes.c_uint32()
-            advertised = lib.NDIlib_recv_listener_get_receivers(listener,ctypes.byref(receiver_count))
+            advertised = rx['get_receivers'](receiver_listener,ctypes.byref(receiver_count))
             if receiver_count.value > 10000:
                 receiver_observed = False
                 receiver_warning = 'La respuesta supera el máximo de 10.000 receptores.'
             elif advertised:
                 for index in range(receiver_count.value):
                     item = advertised[index]
-                    decode = lambda value:(value or b'').decode('utf-8',errors='replace')
                     receiver = source_details(decode(item.p_name),decode(item.p_address))
                     receiver.update(id=decode(item.p_uuid),stream=decode(item.p_input_name) or receiver['stream'])
                     receivers.append(receiver)
@@ -144,8 +208,10 @@ def enumerate_sources(settings, deadline, loader=load_library, with_receivers=Fa
             'receivers':receivers,'receivers_count':len(receivers),'receivers_supported':receiver_supported,
             'receivers_observed':receiver_observed,'receivers_warning':None if receiver_observed else receiver_warning}
     finally:
-        if listener:
-            lib.NDIlib_recv_listener_destroy(listener)
+        if receiver_listener:
+            rx['destroy'](receiver_listener)
+        if sender_listener:
+            tx['destroy'](sender_listener)
         if finder:
             lib.NDIlib_find_destroy(finder)
         lib.NDIlib_destroy()

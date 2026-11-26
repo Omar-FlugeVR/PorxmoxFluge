@@ -66,7 +66,7 @@ La respuesta activa contiene `enabled`, `online`, `server`, `latency_ms`, `last_
 
 También devuelve `receivers`, `receivers_count`, `receivers_supported` y `receivers_observed`, además de `sources_observed`, `entities`, `events` y `server_last_seen`. Cada entidad histórica indica `direction` (`sender`/`receiver`), `device_role` (`both` cuando se observan ambas funciones bajo el mismo hostname), `available`, `first_seen`, `last_seen`, `last_checked` y `last_changed`.
 
-No hay un daemon de sondeo. PHP-FPM, que ya gestiona `systemd`, atiende ambas rutas a través de Caddy y ejecuta `bin/ndi-probe.py` solo para una consulta necesaria. El helper queda limitado por timeout, se destruye al terminar y elimina su configuración temporal. El navegador programa la siguiente petición después de la respuesta para evitar solapamientos, y cancela su temporizador al cambiar de vista, ocultar la pestaña del navegador, cerrar sesión o desactivar el módulo. **Actualizar** consulta el último estado respetando la caché y el límite de frecuencia.
+No hay un daemon de sondeo. PHP-FPM, que ya gestiona `systemd`, atiende ambas rutas a través de Caddy y ejecuta `bin/ndi-probe.py` solo para una consulta necesaria. El helper queda limitado por timeout, se destruye al terminar y elimina su configuración temporal. El navegador programa la siguiente petición después de la respuesta para evitar solapamientos, y cancela su temporizador al cambiar de vista, ocultar la pestaña del navegador, cerrar sesión o desactivar el módulo. **Actualizar** consulta el último estado respetando la caché y el límite de frecuencia. Durante la consulta aparece **Consultando…** y el botón queda desactivado. Si el panel agota el tiempo de espera, muestra un aviso y vuelve a habilitarlo.
 
 ### Disponibilidad y registro de actividad
 
@@ -76,6 +76,8 @@ El **Registro de actividad**, debajo de la tabla, guarda detecciones, desaparici
 
 **Limpiar registro**, disponible para administradores, borra únicamente los eventos del servidor/grupos seleccionados. Conserva los equipos, estados y últimos avistamientos, actualiza la caché para que no reaparezcan los eventos borrados y mantiene los historiales de otras combinaciones. Se aplica mediante `POST /api/ndi/log/clear` con sesión y CSRF; no ejecuta una consulta NDI.
 
+Los administradores pueden **Eliminar** una entrada marcada como **No visible**. El panel conserva el registro de actividad y vuelve a mostrar el equipo si lo detecta de nuevo. La eliminación se limita al historial del servidor y los grupos que se están consultando.
+
 El archivo privado `/var/lib/fluge-control/ndi-history.json` conserva hasta 500 eventos y 1.000 entidades por combinación de servidor, grupos y modo demo/real, con un máximo de cuatro combinaciones recientes. Cambiar los grupos o el servidor usa otro historial y no clasifica como ausentes los equipos de la consulta anterior. Volver a esa combinación recupera sus registros. Las pruebas de conexión no alteran este historial, y desactivar el módulo o reinstalar el código no lo borra.
 
 El historial refleja las consultas realizadas mientras el monitor está abierto. Los intervalos con el módulo pausado, desactivado o el navegador cerrado no tienen seguimiento; una desaparición se fecha al observar su ausencia, no como hora exacta de desconexión física.
@@ -84,7 +86,11 @@ El historial refleja las consultas realizadas mientras el monitor está abierto.
 
 Se han revisado la documentación oficial y las cabeceras `Processing.NDI.Find.h` y `Processing.NDI.structs.h` del SDK v6 para Linux antes de implementar el helper. El puerto 5959 usa el protocolo NDI, no HTTP. Primero se mide una conexión TCP; después se utiliza `libndi.so` con `ctypes`, `NDIlib_find_create_v2`, `NDIlib_find_wait_for_sources` y `NDIlib_find_get_current_sources`.
 
+El helper también consulta los emisores anunciados con `NDIlib_send_listener_get_senders` cuando está disponible la API estándar de NDI 6.3 o posterior. Combina ambos resultados, deduplica coincidencias por nombre y dirección y utiliza el UUID anunciado para distinguir emisores con el mismo nombre. El listener aplica los grupos configurados, con Public como valor por defecto. [NDI Sender Listener](https://docs.ndi.video/all/developing-with-ndi/sdk/ndi-sender-discovery-and-monitor/ndi-sender-listener)
+
 Para receptores se ha revisado `Processing.NDI.RecvListener.h` y se utiliza la API estándar `NDIlib_recv_listener_create`, `NDIlib_recv_listener_is_connected`, `NDIlib_recv_listener_wait_for_receivers` y `NDIlib_recv_listener_get_receivers`. Necesita un runtime/Discovery Server compatibles con NDI 6.2 o posterior y que los receptores se anuncien. Las funciones se detectan opcionalmente; un runtime antiguo mantiene la consulta de emisores y comunica que la recepción no se ha podido comprobar. También se copian los datos prestados de los receptores antes de destruir el listener. No se utilizan APIs Advanced de eventos o control.
+
+Si el servidor devuelve cero receptores y usas NDI Studio Monitor, abre **Settings → Allow Receiver Advertising** y comprueba que NDI Tools usa el mismo Discovery Server que el panel. En otras aplicaciones, el anuncio depende de que el fabricante lo haya implementado. [Guía oficial de NDI](https://docs.ndi.video/all/using-ndi/ndi-tools/ndi-tools-for-windows/discovery/getting-started-with-discovery-service)
 
 El rol identifica una fuente emisora o un receptor anunciado. No certifica que se estén transmitiendo/recibiendo fotogramas en ese instante ni indica a qué fuente está conectado un receptor; esa telemetría no está incluida en esta consulta de la API estándar. Referencia: [descubrimiento y límites de monitorización de receptores NDI](https://docs.ndi.video/all/developing-with-ndi/sdk/ndi-recv-discovery-monitor-and-control).
 

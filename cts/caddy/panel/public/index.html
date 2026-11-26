@@ -39,6 +39,7 @@
       <button data-view="updates" data-admin hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>Actualizaciones</button>
       <button data-view="settings" data-admin><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></svg>Configuración</button>
     </nav>
+    <p id="panelUpdateNotice" class="feedback warning" role="status" hidden></p>
     <div id="feedback" class="feedback" role="status" aria-live="polite" hidden></div>
     <section id="directory">
       <div class="section-heading"><h2 id="viewTitle">Servicios del estudio</h2><span id="viewCount" class="muted"></span></div>
@@ -72,7 +73,8 @@
       <p class="hint">Proxmox consulta las versiones cada hora. Aplica las actualizaciones cuando tengas una ventana de mantenimiento.</p>
       <p id="updatesCheckedAt" class="sync-status" role="status"></p>
       <p id="updateJobStatus" class="sync-status" role="status" hidden></p>
-      <div class="table-wrap"><table><thead><tr><th scope="col">Servicio</th><th scope="col">Instalada</th><th scope="col">Publicada</th><th scope="col">Estado</th><th scope="col">Cambios</th><th scope="col">Acción</th></tr></thead><tbody id="updatesRows"></tbody></table></div>
+      <progress id="updateProgress" aria-label="Actualización en curso" hidden></progress>
+      <div class="table-wrap"><table><thead><tr><th scope="col">Servicio</th><th scope="col">Instalada</th><th scope="col">Publicada</th><th scope="col">Estado</th><th scope="col">Acción</th></tr></thead><tbody id="updatesRows"></tbody></table></div>
     </section>
     <section id="settings" hidden>
       <div class="section-heading"><h2>Configuración</h2><span class="muted" id="panelDomain"></span></div>

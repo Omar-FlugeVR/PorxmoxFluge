@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 
 from ndi_release import CACHE, fetch_release
 from ndi_sdk import display_license, read_license
+from panel_release import validate_release
 
 GITHUB_API = 'https://api.github.com/repos/'
 RELEASE_REPOS = {'adguard': 'AdguardTeam/AdGuardHome', 'caddy': 'caddyserver/caddy'}
@@ -20,8 +21,8 @@ COMMIT = re.compile(r'[a-f0-9]{40}')
 VERSION = re.compile(r'(?<![\w.])v?(\d+)\.(\d+)\.(\d+)(-[\w.-]+)?', re.IGNORECASE)
 
 
-def get_json(url):
-    request = Request(url, headers={'User-Agent': 'Fluge-Control-Updates', 'Accept': 'application/json'})
+def get_json(url, media_type='application/json'):
+    request = Request(url, headers={'User-Agent': 'Fluge-Control-Updates', 'Accept': media_type})
     with urlopen(request, timeout=7) as response:
         document = json.loads(response.read(2 * 1024 * 1024))
     if not isinstance(document, dict):
@@ -43,14 +44,25 @@ def compare_panel(checkout, revision):
     dirty = revision.get('dirty') is True
     entry = {'installed': commit, 'latest': None, 'dirty': dirty, 'status': 'unknown_remote'}
     try:
+        entry['installedRelease'] = validate_release(revision.get('release'))
+    except ValueError:
+        # A legacy CT records its commit and gains version metadata on its next deployment.
+        entry['installedRelease'] = None
+    try:
         repo = github_origin(checkout)
         if not repo:
             return entry
-        entry['notes'] = f'https://github.com/{repo}/commits'
         latest = get_json(f'{GITHUB_API}{repo}/commits/HEAD').get('sha')
         if not isinstance(latest, str) or not COMMIT.fullmatch(latest):
             return entry
+        release = validate_release(get_json(f'{GITHUB_API}{repo}/contents/panel-version.json?ref={latest}',
+                                            'application/vnd.github.raw+json'))
+        if not release['update_required']:
+            entry.update(latestRelease=entry['installedRelease'],
+                         status='local_changes' if dirty else 'current' if entry['installedRelease'] else 'unknown_local')
+            return entry
         entry['latest'] = latest
+        entry['latestRelease'] = release
         if not commit or dirty:
             entry['status'] = 'local_changes' if dirty else 'unknown_local'
         elif commit == latest:
@@ -59,7 +71,6 @@ def compare_panel(checkout, revision):
             compare = f'{commit}...{latest}'
             status = get_json(f'{GITHUB_API}{repo}/compare/{compare}?per_page=1').get('status')
             entry['status'] = {'ahead': 'update', 'behind': 'newer', 'diverged': 'diverged'}.get(status, 'unknown_remote')
-            entry['notes'] = f'https://github.com/{repo}/compare/{compare}'
     except (OSError, HTTPException, ValueError, TypeError, subprocess.SubprocessError) as error:
         print(f'Panel Fluge: {error}', file=sys.stderr)
     return entry

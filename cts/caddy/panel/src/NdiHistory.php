@@ -7,9 +7,21 @@ final class NdiHistory
 {
     public function __construct(private JsonStore $store) {}
 
-    private static function scopeId(array $settings, bool $mock): string
+    public static function scopeId(array $settings, bool $mock): string
     {
         return hash('sha256', json_encode([NdiSettings::server($settings), $settings['groups'], $mock], JSON_THROW_ON_ERROR));
+    }
+
+    /** Caller holds ndi.lock and persists the result after invalidating the status cache. */
+    public function withoutAbsentEntity(string $scopeId, string $id): array
+    {
+        $all = $this->store->read('ndi-history.json', ['scopes' => []]);
+        $entity = $all['scopes'][$scopeId]['entities'][$id] ?? null;
+        if ($entity !== null && $entity['available'] !== false) {
+            throw new HttpError(409, 'Solo se pueden eliminar los equipos que siguen como No visible.');
+        }
+        unset($all['scopes'][$scopeId]['entities'][$id]);
+        return $all;
     }
 
     /** Caller holds ndi.lock; only clear events for the selected server/groups. */
@@ -51,11 +63,29 @@ final class NdiHistory
         foreach (['sender' => 'sources', 'receiver' => 'receivers'] as $direction => $collection) {
             $observed = $status['online'] && ($status[$collection === 'sources' ? 'sources_observed' : 'receivers_observed'] ?? false);
             $seen = [];
+            $senderEndpoints = [];
+            if ($observed && $direction === 'sender') foreach ($scope['entities'] as $knownId => $known) {
+                if ($known['direction'] === 'sender') $senderEndpoints[$known['full_name'] . "\0" . $known['url']][] = $knownId;
+            }
             if ($observed) foreach ($status[$collection] as $item) {
-                $identity = $direction === 'receiver' && !empty($item['id']) ? $item['id'] : $item['full_name'];
+                $identity = ($item['id'] ?? '') ?: $item['full_name'];
                 $id = hash('sha256', $direction . "\0" . $identity);
-                $seen[$id] = true;
                 $old = $scope['entities'][$id] ?? null;
+                if ($direction === 'sender' && $old === null) {
+                    $legacyId = hash('sha256', "sender\0" . $item['full_name']);
+                    $legacy = $scope['entities'][$legacyId] ?? null;
+                    if ($identity !== $item['full_name'] && $legacy !== null && $legacy['url'] === $item['url'] && !isset($seen[$legacyId])) {
+                        $old = $legacy;
+                        unset($scope['entities'][$legacyId]);
+                    } elseif ($identity === $item['full_name']) {
+                        $matches = $senderEndpoints[$item['full_name'] . "\0" . $item['url']] ?? [];
+                        if (count($matches) === 1 && !isset($seen[$matches[0]]) && isset($scope['entities'][$matches[0]])) {
+                            $id = $matches[0];
+                            $old = $scope['entities'][$id] ?? null;
+                        }
+                    }
+                }
+                $seen[$id] = true;
                 $entity = ['id' => $id, 'direction' => $direction, 'host' => $item['host'], 'stream' => $item['stream'],
                     'full_name' => $item['full_name'], 'url' => $item['url'], 'available' => true,
                     'first_seen' => $old['first_seen'] ?? $now, 'last_seen' => $now, 'last_checked' => $now,
@@ -93,6 +123,7 @@ final class NdiHistory
         foreach ($entities as $entity) if ($entity['available'] === true) $roles[strtolower($entity['host'])][$entity['direction']] = true;
         foreach ($entities as &$entity) $entity['device_role'] = count($roles[strtolower($entity['host'])] ?? []) > 1 ? 'both' : $entity['direction'];
         unset($entity);
-        return ['entities' => $entities, 'events' => array_reverse($scope['events']), 'server_last_seen' => $scope['server_last_seen'], 'history_limit' => 500];
+        return ['entities' => $entities, 'events' => array_reverse($scope['events']), 'server_last_seen' => $scope['server_last_seen'],
+            'history_limit' => 500, 'history_scope' => $scopeId];
     }
 }

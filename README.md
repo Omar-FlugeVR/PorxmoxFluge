@@ -225,7 +225,9 @@ Sin cambios de contenido, no se recargan servicios activos ni se generan nuevas 
 
 La pestaña **Actualizaciones** está disponible para administradores. Muestra la versión instalada y la última publicación. `studio-infra-updates.timer` comprueba las versiones cada hora en Proxmox. **Recargar informe** lee el último resultado. `bash updates.sh` fuerza una consulta desde el host.
 
-**Actualizar** pide confirmación para la versión mostrada. Proxmox recoge una solicitud a la vez mediante `studio-infra-update-jobs.timer`. La pestaña muestra la cola, la ejecución y el resultado. El panel vuelve a consultar al recuperarse de una recarga. Instala esta función sincronizando el CT de Caddy una primera vez.
+**Actualizar** pide confirmación para la versión mostrada. Proxmox recoge una solicitud a la vez mediante `studio-infra-update-jobs.timer`. La barra de progreso aparece al confirmar y sigue visible durante la cola y la ejecución. El panel vuelve a consultar al recuperarse de una recarga. Instala esta función sincronizando el CT de Caddy una primera vez.
+
+La versión y el tipo de **Servicio de control** se leen de [`panel-version.json`](panel-version.json) en la raíz. Para publicar una actualización del panel, pon la versión que quieras mostrar y `"update_required": true` en el commit. Aparecerá **Actualización requerida** si ese commit está pendiente de desplegar. Con `"update_required": false`, el chequeo omite ese commit como actualización del panel, por ejemplo cuando cambias el instalador. La versión instalada se registra al sincronizar Caddy.
 
 Para **Servicio de control**, GitHub publica el commit y Proxmox lo descarga desde la rama por defecto de `origin`. El host comprueba que es el commit elegido, avanza su copia local con `git merge --ff-only` y ejecuta `sync.sh` para Caddy. El despliegue copia el panel, valida Caddy y recarga Caddy y PHP-FPM. El inventario, los ajustes y las cuentas permanecen en el estado privado del CT. Si falla la validación o la recarga durante la publicación, el despliegue restaura los archivos anteriores. Los cambios locales en el checkout requieren revisión antes de actualizar desde el botón.
 
@@ -246,7 +248,7 @@ git pull --ff-only
 
 Los actualizadores de los CTs comprueban la versión, el servicio y su puerto después de iniciarlo. Las copias se guardan en `/var/backups/studio-infra/` dentro de cada CT. En el host, `journalctl -u studio-infra-update-jobs.service` muestra el resultado de las instalaciones y `journalctl -u studio-infra-updates.service` el de las consultas.
 
-En el **CT de Caddy**, `/opt/fluge-control/revision.json` guarda el commit del panel desplegado y `/etc/fluge-control/updates.json` conserva el último informe de versiones y su fecha. Proxmox lee la versión instalada de cada uno de los demás servicios en su propio CT. En el **host Proxmox**, `/var/cache/studio-infra/ndi/` conserva el paquete oficial de NDI y los metadatos de la versión comprobada. El primer chequeo de una instalación limpia genera estos datos de nuevo.
+En el **CT de Caddy**, `/opt/fluge-control/revision.json` guarda la versión, el tipo y el commit del panel desplegado. `/etc/fluge-control/updates.json` conserva el último informe de versiones y su fecha. Proxmox lee la versión instalada de cada uno de los demás servicios en su propio CT. En el **host Proxmox**, `/var/cache/studio-infra/ndi/` conserva el paquete oficial de NDI y los metadatos de la versión comprobada. El primer chequeo de una instalación limpia genera estos datos de nuevo.
 
 ## 5. Configurar los clientes
 

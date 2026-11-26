@@ -38,7 +38,8 @@ final class UpdateJobs
             $entry = $report['services'][$role] ?? [];
             $checkedAt = strtotime($report['checkedAt'] ?? '');
             if (!$checkedAt || time() - $checkedAt > 7200 || ($entry['status'] ?? '') !== 'update'
-                || $version !== ($entry['latest'] ?? null) || !($entry['canUpdate'] ?? false)) {
+                || $version !== ($entry['latest'] ?? null) || !($entry['canUpdate'] ?? false)
+                || ($role === 'panel' && ($entry['latestRelease']['update_required'] ?? false) !== true)) {
                 throw new HttpError(409, 'La versión seleccionada ya no está disponible en el informe.');
             }
             $request = ['id' => bin2hex(random_bytes(16)), 'role' => $role, 'version' => $version, 'created' => time()];
@@ -52,6 +53,7 @@ final class UpdateJobs
             if (getenv('FLUGE_DEMO') === '1') {
                 $report['services'][$role]['installed'] = $version;
                 $report['services'][$role]['status'] = 'current';
+                if ($role === 'panel') $report['services'][$role]['installedRelease'] = $entry['latestRelease'];
                 unset($report['job']);
                 $this->reports->write('updates.json', $report);
                 $this->reports->write('update-job.json', $request + ['state' => 'success']);

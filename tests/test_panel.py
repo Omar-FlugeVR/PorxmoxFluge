@@ -235,6 +235,20 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(results['services']['ndi']['installed'], 'SDK 6.4.0')
         self.assertEqual(results['job']['id'], job['id'])
 
+    def test_panel_updates_require_an_announced_commit(self):
+        from datetime import datetime, timezone
+        target = 'b' * 40
+        latest = {'version':'0.0.2','type':'test','update_required':False}
+        entry = {'latest':target,'latestRelease':latest,'status':'update','canUpdate':True}
+        report = {'checkedAt':datetime.now(timezone.utc).isoformat(),'services':{'panel':entry}}
+        path = self.state / 'updates.json'
+        path.write_text(json.dumps(report), encoding='utf-8')
+        self.assertEqual(self.request('update_service', {'role':'panel','version':target})[0], 409)
+        latest['update_required'] = True
+        path.write_text(json.dumps(report), encoding='utf-8')
+        self.assertEqual(self.request('update_service', {'role':'panel','version':target})[0], 200)
+        self.assertEqual(self.request('updates')[1]['services']['panel']['installedRelease'], latest)
+
     def test_categories_propagate_names_and_reassign_without_deleting_equipment(self):
         data = self.inventory()
         original = data['categories'][0]
@@ -594,6 +608,45 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(self.request('/api/ndi/log/clear',{})[0],200)
         self.save_ndi(self.ndi_settings())
         self.assertEqual(self.request('/api/ndi/status')[1]['events'],[],'Re-enabling must not reuse an uncleared cached log')
+
+    def test_ndi_forget_only_removes_absent_entity_in_selected_scope(self):
+        self.save_ndi(self.ndi_settings(groups='Other'))
+        other = self.ndi_refresh()
+        self.save_ndi(self.ndi_settings())
+        first = self.ndi_refresh()
+        entity = next(item for item in first['entities'] if item['direction'] == 'receiver')
+        action = 'ndi_forget_entity'
+        payload = {'id': entity['id'], 'scope': first['history_scope']}
+        self.assertEqual(self.request(action, payload)[0], 409)
+        self.assertEqual(self.request(action, {**payload, 'id': 'invalid'})[0], 422)
+        self.assertEqual(self.request(action, {**payload, 'scope': other['history_scope']})[0], 409)
+
+        self.save_ndi(self.ndi_settings(mock_scenario='offline'))
+        self.assertIsNone(next(item for item in self.ndi_refresh()['entities'] if item['id'] == entity['id'])['available'])
+        self.assertEqual(self.request(action, payload)[0], 409)
+        self.save_ndi(self.ndi_settings(mock_scenario='empty'))
+        missing = self.ndi_refresh()
+        self.assertEqual(self.request(action, payload, csrf=False)[0], 403)
+        self.request('create_user', {'revision':0, 'username':'ndiviewer', 'password':'ViewerDemo1', 'confirmPassword':'ViewerDemo1', 'role':'user'})
+        viewer, session = self.another_session('ndiviewer', 'ViewerDemo1')
+        self.assertEqual(self.request(action, payload, client=viewer, csrf=session['csrfToken'])[0], 403)
+
+        self.assertEqual(self.request(action, payload), (200, {'status':'ok'}))
+        after = self.request('/api/ndi/status')[1]
+        sightings = lambda status: {item['id']: (item['available'], item['last_seen']) for item in status['entities']}
+        self.assertEqual(sightings(after), {key: value for key, value in sightings(missing).items() if key != entity['id']})
+        self.assertEqual(after['events'], missing['events'])
+        self.assertEqual(self.request(action, payload)[0], 200, 'An already removed entry stays removed on retry')
+        self.assertEqual(sightings(self.ndi_refresh()), sightings(after))
+
+        self.save_ndi(self.ndi_settings(groups='Other'))
+        self.assertEqual({item['id']: item['first_seen'] for item in self.ndi_refresh()['entities']},
+                         {item['id']: item['first_seen'] for item in other['entities']})
+        self.save_ndi(self.ndi_settings())
+        rediscovered = self.ndi_refresh()
+        self.assertEqual(rediscovered['receivers_count'], 2)
+        self.assertTrue(next(item for item in rediscovered['entities'] if item['id'] == entity['id'])['available'])
+        self.assertEqual(self.request(action, payload)[0], 409, 'A source rediscovered while the dialog was open cannot be removed')
 
     def test_ndi_history_does_not_call_devices_offline_when_observation_fails(self):
         self.save_ndi(self.ndi_settings())

@@ -44,16 +44,35 @@ class UpdatesTests(unittest.TestCase):
 
     def test_panel_compares_deployed_revision_to_public_branch(self):
         deployed, published = 'a' * 40, 'b' * 40
+        installed_release = {'version':'0.0.1','type':'test','update_required':False}
+        new_release = {'version':'0.0.2','type':'stable','update_required':True}
+        revision = {'commit':deployed,'release':installed_release}
         with (patch.object(check_updates, 'github_origin', return_value='example/panel'),
               patch.object(check_updates, 'get_json') as fetch):
             for remote, expected in [('ahead', 'update'), ('behind', 'newer'), ('diverged', 'diverged')]:
-                fetch.side_effect = [{'sha': published}, {'status': remote}]
-                report = check_updates.compare_panel('.', {'commit': deployed})
+                fetch.side_effect = [{'sha': published}, new_release, {'status': remote}]
+                report = check_updates.compare_panel('.', revision)
                 self.assertEqual(report['installed'], deployed)
                 self.assertEqual(report['latest'], published)
+                self.assertEqual(report['installedRelease'], installed_release)
+                self.assertEqual(report['latestRelease'], new_release)
                 self.assertEqual(report['status'], expected)
-            fetch.side_effect = [{'sha': deployed}]
-            self.assertEqual(check_updates.compare_panel('.', {'commit': deployed, 'dirty': True})['status'], 'local_changes')
+                self.assertIn(f'/contents/panel-version.json?ref={published}', fetch.call_args_list[-2].args[0])
+            fetch.side_effect = [{'sha': deployed}, new_release]
+            self.assertEqual(check_updates.compare_panel('.', revision)['status'], 'current')
+            fetch.side_effect = [{'sha': deployed}, new_release]
+            self.assertEqual(check_updates.compare_panel('.', {**revision, 'dirty': True})['status'], 'local_changes')
+
+    def test_installer_only_commit_is_ignored(self):
+        deployed, published = 'a' * 40, 'b' * 40
+        release = {'version':'0.0.1','type':'test','update_required':True}
+        with (patch.object(check_updates, 'github_origin', return_value='example/panel'),
+              patch.object(check_updates, 'get_json', side_effect=[{'sha':published}, {**release,'update_required':False}]) as fetch):
+            entry = check_updates.compare_panel('.', {'commit':deployed, 'release':release})
+            self.assertEqual(entry['status'], 'current')
+            self.assertIsNone(entry['latest'])
+            self.assertEqual(entry['latestRelease'], release)
+            self.assertEqual(fetch.call_count, 2)
 
     def test_products_compare_stable_versions_and_keep_partial_results(self):
         with patch.object(check_updates, 'stable_version', return_value='v5.10.0') as fetch:

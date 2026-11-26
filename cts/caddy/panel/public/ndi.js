@@ -25,21 +25,29 @@ export function validateNdiSettings(value) {
 
 /** Poll only an enabled, visible view. Chained timeouts prevent overlapping requests. */
 export class NdiModule {
-  constructor({request,save,feedback,runtimeRequest,canInstall,onDisabled}) {
-    Object.assign(this,{request,save,feedback,runtimeRequest,canInstall,onDisabled,view:false,timer:null,controller:null,generation:0,data:null,busy:false,direction:'all'});
+  constructor({request,save,feedback,runtimeRequest,canManage,onDisabled}) {
+    Object.assign(this,{request,save,feedback,runtimeRequest,canManage,onDisabled,view:false,timer:null,controller:null,generation:0,data:null,busy:false,historyBusy:false,direction:'all'});
     $('ndiForm').addEventListener('submit', event => { event.preventDefault(); void this.saveForm(); });
     $('ndiEnabled').addEventListener('change', () => {
       this.showFields();
       if (!$('ndiEnabled').checked) { this.stop(); void this.disable(); }
     });
     $('ndiTest').onclick = () => { void this.test(); };
-    $('ndiRefresh').onclick = () => { this.stop(); void this.poll(); };
+    $('ndiRefresh').onclick = () => {
+      if (this.controller || this.historyBusy) return;
+      clearTimeout(this.timer);
+      void this.poll();
+    };
     $('ndiClearLog').onclick = () => { void this.clearLog(); };
     $('ndiInstallFromTest').onclick = () => { void this.prepareRuntime(true); };
     $('ndiInstallFromView').onclick = () => { void this.prepareRuntime(false); };
     $('ndiRuntimeAccept').onclick = () => { void this.installRuntime(); };
     $('ndiRuntimeDialog').addEventListener('cancel', event => { if (this.runtimeBusy) event.preventDefault(); });
     $('ndiSearch').addEventListener('input', () => this.renderSources());
+    $('ndiSources').addEventListener('click', event => {
+      const button = event.target.closest('[data-ndi-forget]');
+      if (button) this.confirmForget(button.dataset.ndiForget);
+    });
     $('ndiDirections').addEventListener('click', event => {
       const button = event.target.closest('[data-ndi-direction]');
       if (!button) return;
@@ -84,31 +92,37 @@ export class NdiModule {
 
   setView(active) { this.view = active; this.stop(); if (this.active()) void this.poll(); }
   active() { return this.settings?.enabled && this.view && !document.hidden; }
+  setRefreshBusy(busy) {
+    const button = $('ndiRefresh');
+    button.disabled = busy;
+    button.textContent = busy ? 'Consultando…' : 'Actualizar';
+  }
   stop() {
     this.generation++;
     clearTimeout(this.timer); this.timer = null;
     this.controller?.abort(); this.controller = null;
     this.testController?.abort(); this.testController = null;
-    $('ndiRefresh').disabled = false;
+    this.setRefreshBusy(this.historyBusy);
   }
 
   async poll() {
-    if (!this.active() || this.clearingLog) return;
+    if (!this.active() || this.controller || this.historyBusy) return;
     const generation = this.generation;
-    this.controller = new AbortController(); $('ndiRefresh').disabled = true;
+    this.controller = new AbortController(); this.setRefreshBusy(true);
     let rate = this.settings.polling_rate;
     try {
-      const data = await this.request('api/ndi/status', {signal:this.controller.signal});
+      const data = await this.request('api/ndi/status', {signal:this.controller.signal,timeout:(this.settings.timeout + 5) * 1000});
       if (generation !== this.generation || !this.active()) return;
       if (!data.enabled) { this.settings.enabled = false; $('ndiTab').hidden = true; this.stop(); this.onDisabled(); return; }
       this.data = data; rate = data.polling_rate; this.render();
     } catch (error) {
       if (error.name !== 'AbortError' && generation === this.generation) {
-        this.data = {...(this.data || {}),warning:error.message,stale:true}; this.render();
+        const warning = error.name === 'TimeoutError' ? 'La consulta NDI ha tardado demasiado en responder.' : error.message;
+        this.data = {...(this.data || {}),warning,stale:true}; this.render();
       }
     } finally {
       if (generation === this.generation) {
-        this.controller = null; $('ndiRefresh').disabled = false;
+        this.controller = null; this.setRefreshBusy(false);
         if (this.active()) this.timer = setTimeout(() => { void this.poll(); }, rate * 1000);
       }
     }
@@ -124,7 +138,10 @@ export class NdiModule {
     $('ndiSourceCount').textContent = data?.sources_observed && !data.stale ? String(data.sources_count) : '—';
     $('ndiReceiverCount').textContent = data?.receivers_observed && !data.stale ? String(data.receivers_count) : '—';
     $('ndiServerSeen').textContent = data?.server_last_seen ? `Última vez disponible: ${date(data.server_last_seen)}` : '';
-    $('ndiReceiverNote').textContent = data?.receivers_warning || 'Los receptores deben anunciarse al Discovery Server (NDI 6.2+). La función anunciada no confirma tráfico de vídeo/audio en curso.';
+    const noReceivers = data?.receivers_observed && !data.stale && data.receivers_count === 0;
+    $('ndiReceiverNote').textContent = data?.receivers_warning || (noReceivers
+      ? 'Este Discovery Server no ha devuelto receptores anunciados. En NDI Studio Monitor, activa Settings → Allow Receiver Advertising y comprueba que usa este mismo servidor.'
+      : 'Los receptores deben anunciarse al Discovery Server (NDI 6.2+). La función anunciada no confirma tráfico de vídeo/audio en curso.');
     $('ndiMockBadge').hidden = !this.mock;
     $('ndiWarning').hidden = !data?.warning;
     $('ndiWarning').textContent = data?.warning || '';
@@ -141,28 +158,60 @@ export class NdiModule {
     $('ndiSources').innerHTML = `<table><thead><tr><th>Equipo / Host</th><th>Función</th><th>Fuente / Entrada</th><th>Dirección NDI</th><th>Disponibilidad</th><th>Última vez visto</th></tr></thead><tbody>${sources.map(source => {
       const available = this.data.stale ? null : source.available;
       const role = source.direction==='receiver'?'Receptor':'Emisor';
-      return `<tr data-ndi-entity="${esc(source.id)}"><td data-label="Equipo / Host"><strong>${esc(source.host)}</strong></td><td data-label="Función"><span class="ndi-role">${role}</span>${source.device_role==='both'?`<span class="hint ndi-also">También ${source.direction==='receiver'?'emite':'recibe'}</span>`:''}</td><td data-label="Fuente / Entrada">${esc(source.stream || source.full_name)}</td><td data-label="Dirección NDI"><code>${esc(source.url || '—')}</code></td><td data-label="Disponibilidad"><span class="ndi-availability ${available===true?'available':available===false?'absent':'unknown'}">${available===true?'Disponible':available===false?'No visible':'Sin comprobar'}</span></td><td data-label="Última vez visto"><time datetime="${esc(source.last_seen)}">${esc(date(source.last_seen))}</time></td></tr>`;
+      const forget = available === false && this.canManage() && this.data.history_scope
+        ? `<button type="button" class="edit-button danger-text ndi-forget" data-ndi-forget="${esc(source.id)}" aria-label="Eliminar ${esc(source.full_name)} del listado NDI" ${this.historyBusy ? 'disabled' : ''}>Eliminar</button>`
+        : '';
+      return `<tr data-ndi-entity="${esc(source.id)}"><td data-label="Equipo / Host"><strong>${esc(source.host)}</strong></td><td data-label="Función"><span class="ndi-role">${role}</span>${source.device_role==='both'?`<span class="hint ndi-also">También ${source.direction==='receiver'?'emite':'recibe'}</span>`:''}</td><td data-label="Fuente / Entrada">${esc(source.stream || source.full_name)}</td><td data-label="Dirección NDI"><code>${esc(source.url || '—')}</code></td><td data-label="Disponibilidad"><span class="ndi-availability ${available===true?'available':available===false?'absent':'unknown'}">${available===true?'Disponible':available===false?'No visible':'Sin comprobar'}</span>${forget}</td><td data-label="Última vez visto"><time datetime="${esc(source.last_seen)}">${esc(date(source.last_seen))}</time></td></tr>`;
     }).join('') || `<tr><td colspan="6" class="empty">${query || this.direction!=='all' ? 'No hay equipos con este filtro.' : this.data ? 'Todavía no hay equipos NDI registrados en este monitor.' : 'Consultando equipos NDI…'}</td></tr>`}</tbody></table>`;
   }
 
   renderEvents() {
     const events = this.data?.events || [];
     $('ndiEventCount').textContent = `${events.length} eventos · últimos ${this.data?.history_limit || 500}`;
-    $('ndiClearLog').disabled = Boolean(this.clearingLog) || !events.length;
+    $('ndiClearLog').disabled = this.historyBusy || !events.length;
     $('ndiEvents').innerHTML = events.map(event => `<li class="ndi-event ${event.level==='warning'?'warning':''}"><time datetime="${esc(event.at)}">${esc(date(event.at))}</time><span>${esc(event.message)}</span></li>`).join('') || `<li class="hint">${this.data ? 'Registro vacío. Los próximos cambios aparecerán aquí.' : 'El registro aparecerá al realizar las primeras consultas.'}</li>`;
   }
 
-  async clearLog() {
-    if (this.clearingLog) return;
-    this.clearingLog = true; $('ndiClearLog').disabled = true;
-    this.stop(); // Discard responses that started before the clear operation.
-    $('ndiRefresh').disabled = true;
+  async changeHistory(path, data, apply, message) {
+    if (this.historyBusy || !this.canManage()) return;
+    this.historyBusy = true;
+    this.stop(); // Discard polls started before the change.
+    this.renderSources();
+    this.renderEvents();
     try {
-      await this.request('api/ndi/log/clear',{method:'POST',data:{}});
-      if (this.data) this.data = {...this.data,events:[]};
-      this.renderEvents(); this.feedback('Registro NDI limpiado.');
+      await this.request(path, {method:'POST',data,timeout:(this.settings.timeout + 5) * 1000});
+      if (this.data) apply(this.data);
+      this.feedback(message);
     } catch (error) { this.feedback(error.message,'error'); }
-    finally { this.clearingLog = false; this.renderEvents(); $('ndiRefresh').disabled = false; if(this.active())void this.poll(); }
+    finally {
+      this.historyBusy = false;
+      this.renderSources();
+      this.renderEvents();
+      this.setRefreshBusy(false);
+      if (this.active()) void this.poll();
+    }
+  }
+
+  clearLog() {
+    return this.changeHistory('api/ndi/log/clear', {}, data => { data.events = []; }, 'Registro NDI limpiado.');
+  }
+
+  confirmForget(id) {
+    if (this.historyBusy || !this.canManage() || this.data?.stale) return;
+    const scope = this.data?.history_scope;
+    const entity = this.data?.entities?.find(item => item.id === id && item.available === false);
+    if (!scope || !entity) return;
+    const dialog = $('confirmDialog');
+    $('confirmTitle').textContent = 'Eliminar del listado NDI';
+    $('confirmText').textContent = `Se eliminará «${entity.full_name}». Si vuelve a anunciarse, aparecerá de nuevo.`;
+    $('confirmAction').textContent = 'Eliminar';
+    $('confirmAction').onclick = () => {
+      dialog.close();
+      void this.changeHistory('api.php', {action:'ndi_forget_entity',scope,id}, data => {
+        if (data.history_scope === scope) data.entities = data.entities.filter(item => item.id !== id);
+      }, 'Equipo eliminado del listado NDI.');
+    };
+    dialog.showModal();
   }
 
   setBusy(busy) {
@@ -205,8 +254,8 @@ export class NdiModule {
   }
 
   showRuntimeButtons() {
-    $('ndiInstallFromTest').hidden = !this.canInstall() || !this.testRuntimeMissing;
-    $('ndiInstallFromView').hidden = !this.canInstall() || !this.data?.runtime_missing || this.data.stale;
+    $('ndiInstallFromTest').hidden = !this.canManage() || !this.testRuntimeMissing;
+    $('ndiInstallFromView').hidden = !this.canManage() || !this.data?.runtime_missing || this.data.stale;
   }
 
   runtimeProgress(message) {
@@ -217,7 +266,7 @@ export class NdiModule {
   }
 
   async prepareRuntime(fromTest) {
-    if (this.runtimeBusy || !this.canInstall()) return;
+    if (this.runtimeBusy || !this.canManage()) return;
     this.runtimeFromTest = fromTest;
     this.runtimePackage = null;
     $('ndiRuntimeLicense').hidden = true;
@@ -236,7 +285,7 @@ export class NdiModule {
   }
 
   async installRuntime() {
-    if (this.runtimeBusy || !this.runtimePackage || !this.canInstall()) return;
+    if (this.runtimeBusy || !this.runtimePackage || !this.canManage()) return;
     $('ndiRuntimeError').textContent = '';
     this.runtimeProgress('Instalando libndi en el CT del panel…');
     try {

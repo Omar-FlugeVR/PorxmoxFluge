@@ -30,6 +30,7 @@
 .ndi-availability.available { color: var(--mint); }
 .ndi-availability.absent { color: var(--warning); }
 .ndi-availability.unknown { color: var(--muted); }
+.ndi-forget { display: block; margin-top: 4px; }
 #ndiSources time { font-size: 14px; }
 .ndi-log-panel { margin-top: 26px; }
 .ndi-log-heading { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: baseline; }

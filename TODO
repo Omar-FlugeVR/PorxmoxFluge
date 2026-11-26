@@ -210,3 +210,17 @@ Codex:
 
     Creación de CTs con nesting — 26/11/2026
     ☑ Activar nesting=1 al crear los cuatro CTs Debian 12 para el aislamiento de servicios de systemd. Verificar con dobles de Proxmox que los cuatro comandos pct create incluyen la opción y que siguen creando CTs sin privilegios. Pasaron las pruebas Bash y ShellCheck. Pendiente comprobar el aviso de systemd en Proxmox.
+
+    Versión del panel y progreso de actualización — 26/11/2026
+    ☑ Añadir panel-version.json en la raíz con la versión 0.0.1, tipo test y update_required desactivado. Guardar la versión y el tipo al desplegar, mostrar esos datos en Actualizaciones y usar el commit de GitHub para seleccionar la revisión exacta.
+    ☑ Quitar Ver cambios. Mostrar Actualización requerida en todo el panel de administración cuando el commit publicado la solicita y está pendiente, e ignorar los commits marcados con false. Mostrar una barra desde la confirmación y mientras la actualización está en curso.
+    ☑ Verificar en pruebas HTTP y Chromium el aviso, su ausencia con false y la barra de progreso. Comprobar con un doble de Proxmox el registro de versión y tipo en el despliegue y verificar que GitHub entrega JSON de un commit concreto. Pasaron Bash y ShellCheck; pendiente el despliegue en Proxmox.
+
+    Emisores NDI y estado de las consultas — 26/11/2026
+    ☑ Combinar el Finder con el listener de emisores de NDI 6.3 y posteriores. Respetar los grupos, distinguir emisores del mismo nombre y conservar su historial. Verificado con dobles del SDK y pruebas de persistencia.
+    ☑ Desactivar Actualizar en NDI y Recargar informe en Actualizaciones durante la consulta. Mostrar el estado de espera y volver a habilitar el botón tras recibir respuesta o agotar el tiempo. Verificado en Chromium.
+    ☑ Confirmar desde Windows dos fuentes en el Finder y dos conexiones de Test Patterns al Discovery Server. El usuario confirmó que ambos TX aparecen en su panel.
+
+    Retirada de entradas NDI y diagnóstico de receptores — 26/11/2026
+    ☑ Añadir Eliminar para administradores en las entradas No visible. Conservar el registro de actividad y las demás entradas. Verificar en HTTP y Chromium la confirmación, la persistencia, los permisos, el rechazo si el equipo reaparece y su alta cuando vuelve a anunciarse.
+    ☑ Consultar el Discovery Server real desde Windows con el SDK 6.2.1. El listener se conectó y devolvió cero RX anunciados; el Finder mostró dos TX. Mostrar en el panel cómo habilitar el anuncio de RX en NDI Studio Monitor y verificar con un doble del SDK que dos RX con UUID distintos aparecen aunque compartan nombre y dirección. Pendiente validar los RX reales una vez anunciados.

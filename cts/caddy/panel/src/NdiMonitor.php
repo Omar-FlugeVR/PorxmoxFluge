@@ -14,7 +14,7 @@ final class NdiMonitor
 
     private function key(array $settings): string
     {
-        return hash('sha256', json_encode(['history-v1',$settings,self::mock()], JSON_THROW_ON_ERROR));
+        return hash('sha256', json_encode(['history-v3',$settings,self::mock()], JSON_THROW_ON_ERROR));
     }
 
     public function status(): array
@@ -49,6 +49,29 @@ final class NdiMonitor
                 $this->store->write('ndi-cache.json', $cache);
             }
             return ['status' => 'ok', 'events' => []];
+        });
+    }
+
+    public function forgetEntity(array $input): array
+    {
+        $id = $input['id'] ?? null;
+        if (!is_string($id) || !preg_match('/^[a-f0-9]{64}$/D', $id)) {
+            throw new HttpError(422, 'El identificador del equipo NDI no es válido.');
+        }
+        return $this->store->locked('ndi', function () use ($input, $id): array {
+            $settings = $this->config->get()['ndi'];
+            $scopeId = NdiHistory::scopeId($settings, self::mock());
+            if (!$settings['enabled'] || ($input['scope'] ?? null) !== $scopeId) {
+                throw new HttpError(409, 'Han cambiado los ajustes NDI. Actualiza la lista e inténtalo de nuevo.');
+            }
+            $history = (new NdiHistory($this->store))->withoutAbsentEntity($scopeId, $id);
+            $cache = $this->store->read('ndi-cache.json');
+            if (isset($cache['key'])) {
+                unset($cache['key']);
+                $this->store->write('ndi-cache.json', $cache);
+            }
+            $this->store->write('ndi-history.json', $history);
+            return ['status' => 'ok'];
         });
     }
 

@@ -113,6 +113,10 @@ try {
                 session_write_close();
                 $response = (new NdiMonitor($store, $config))->clearLog();
                 break;
+            case 'POST:ndi_forget_entity':
+                session_write_close();
+                $response = (new NdiMonitor($store, $config))->forgetEntity($input);
+                break;
             case 'POST:ndi_runtime_prepare':
             case 'POST:ndi_runtime_install':
                 session_write_close();
